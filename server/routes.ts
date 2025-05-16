@@ -214,22 +214,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Question is required" });
       }
       
-      // Log the query activity before processing
-      await storage.createActivity({
-        type: 'ai_query',
-        startupId,
-        userId: req.body.userId,
-        content: question,
-      });
+      // Validar que startupId es un UUID válido si está presente
+      const isValidUUID = (id: string) => {
+        return id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      };
+      
+      // Log the query activity before processing (sólo si el ID es válido o undefined)
+      const validStartupId = startupId && isValidUUID(startupId) ? startupId : null;
+      
+      try {
+        await storage.createActivity({
+          type: 'ai_query',
+          startupId: validStartupId,
+          userId: req.body.userId || null,
+          content: question,
+        });
+      } catch (activityError) {
+        console.error("Error logging activity:", activityError);
+        // Continuamos aunque falle el registro de actividad
+      }
       
       const response = await processQuery({
-        startupId,
+        startupId: validStartupId,
         question,
         includeSourceDocuments
       });
       
       res.json(response);
     } catch (error) {
+      console.error("Error processing AI query:", error);
       res.status(500).json({ message: error.message });
     }
   });
