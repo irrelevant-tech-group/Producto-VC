@@ -150,7 +150,7 @@ export default function AiAssistant() {
                   ) : startups && startups.length > 0 ? (
                     startups.map((startup: any) => (
                       <SelectItem key={startup.id} value={startup.id}>
-                        {startup.name}
+                        {startup.name} ({startup.id})
                       </SelectItem>
                     ))
                   ) : (

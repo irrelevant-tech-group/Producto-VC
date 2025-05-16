@@ -12,11 +12,35 @@ export async function processQuery(request: AiQueryRequest): Promise<AiQueryResp
   const { startupId, question, includeSourceDocuments = true } = request;
   
   try {
-    // Get relevant chunks from the vector store
-    // In a real implementation, we would use proper vector search
-    const relevantChunks = await storage.searchChunks(question, startupId);
+    console.log(`Procesando consulta: "${question}" para startupId: ${startupId || 'todos'}`);
+    
+    // Primero intentemos obtener todos los chunks para ese startup si existen
+    let relevantChunks = [];
+    
+    if (startupId && startupId !== "all") {
+      // Si se seleccionó un startup específico, obtener todos sus chunks
+      console.log("Buscando todos los chunks para el startup:", startupId);
+      const allStartupChunks = await storage.searchChunks("", startupId, 10);
+      console.log(`Encontrados ${allStartupChunks.length} chunks totales para el startup`);
+      
+      if (allStartupChunks.length > 0) {
+        // Si hay chunks disponibles, intentamos filtrar por relevancia primero
+        const filteredChunks = await storage.searchChunks(question, startupId);
+        console.log(`Filtrados ${filteredChunks.length} chunks relevantes a la consulta`);
+        
+        // Si encontramos chunks relevantes los usamos, si no usamos todos
+        relevantChunks = filteredChunks.length > 0 ? filteredChunks : allStartupChunks;
+      }
+    } else {
+      // Buscar en todos los startups
+      console.log("Buscando chunks en todos los startups");
+      relevantChunks = await storage.searchChunks(question);
+    }
+    
+    console.log(`Usando ${relevantChunks.length} chunks para responder`);
     
     if (relevantChunks.length === 0) {
+      console.log("No se encontraron chunks relevantes");
       return {
         answer: "I don't have enough information to answer that question. Try uploading more documents or rephrasing your question."
       };
