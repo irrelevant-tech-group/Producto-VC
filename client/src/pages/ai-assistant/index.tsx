@@ -144,7 +144,7 @@ export default function AiAssistant() {
                   <SelectValue placeholder="All startups" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All startups</SelectItem>
+                  <SelectItem value="all">All startups</SelectItem>
                   {isLoadingStartups ? (
                     <div className="p-2">Loading startups...</div>
                   ) : startups && startups.length > 0 ? (
