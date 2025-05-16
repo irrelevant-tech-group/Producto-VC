@@ -138,19 +138,24 @@ export default function UploadDocument() {
   
   return (
     <div className="py-8 px-4 sm:px-6 lg:px-8">
-      <div className="mb-6">
-        <Button
-          variant="outline"
-          className="mb-4"
-          onClick={() => navigate("/documents")}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Documents
-        </Button>
-        <h1 className="text-2xl font-bold text-secondary-900">Upload Document</h1>
-        <p className="mt-1 text-sm text-secondary-500">
-          Add a new document to your startup data
-        </p>
+      <div className="mb-8 animate-in">
+        <div className="flex items-center mb-6">
+          <Button
+            variant="ghost"
+            className="mr-3 hover:bg-secondary/80 transition-all"
+            onClick={() => navigate("/documents")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <div className="w-[1px] h-8 bg-border mr-4"></div>
+          <div>
+            <h1 className="text-3xl font-semibold bg-gradient-to-r from-primary/90 to-accent/90 text-transparent bg-clip-text">Upload Document</h1>
+            <p className="mt-1 text-muted-foreground">
+              Add a new document to enhance your startup intelligence
+            </p>
+          </div>
+        </div>
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -229,11 +234,13 @@ export default function UploadDocument() {
                 />
               </div>
               
-              <div className="space-y-2">
-                <Label>File</Label>
+              <div className="space-y-3">
+                <Label className="text-base">Upload File</Label>
                 <div
-                  className={`border-2 border-dashed rounded-md p-6 text-center ${
-                    selectedFile ? "border-primary-300 bg-primary-50" : "border-secondary-200"
+                  className={`border-2 border-dashed rounded-xl p-8 transition-all duration-300 ${
+                    selectedFile 
+                      ? "border-primary/30 bg-primary/5 shadow-sm" 
+                      : "border-muted-foreground/20 hover:border-primary/30 hover:bg-secondary/50"
                   }`}
                 >
                   <input
@@ -245,11 +252,18 @@ export default function UploadDocument() {
                   />
                   
                   {selectedFile ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <File className="h-6 w-6 text-primary-500" />
-                      <div className="text-sm">
-                        <p className="font-medium">{selectedFile.name}</p>
-                        <p className="text-xs text-secondary-500">
+                    <div className="flex flex-col items-center justify-center space-y-4">
+                      <div className="relative">
+                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center animate-pulse">
+                          <div className="w-3 h-3 bg-primary rounded-full"></div>
+                        </div>
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                          <File className="h-8 w-8 text-primary" />
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <p className="font-medium text-foreground">{selectedFile.name}</p>
+                        <p className="text-sm text-muted-foreground">
                           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </p>
                       </div>
@@ -257,72 +271,143 @@ export default function UploadDocument() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="mt-2 shadow-sm hover:shadow-md transition-all"
                         onClick={handleFileSelect}
                       >
-                        Change
+                        Change File
                       </Button>
                     </div>
                   ) : (
                     <div 
-                      className="space-y-2 cursor-pointer"
+                      className="flex flex-col items-center space-y-4 cursor-pointer py-4"
                       onClick={handleFileSelect}
                     >
-                      <Upload className="h-8 w-8 mx-auto text-secondary-400" />
-                      <div className="text-sm">
-                        <p className="font-medium">Click to upload a file</p>
-                        <p className="text-secondary-500">
+                      <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center shadow-sm">
+                        <Upload className="h-7 w-7 text-primary" />
+                      </div>
+                      <div className="text-center">
+                        <p className="font-medium">Drop your file here or click to browse</p>
+                        <p className="text-sm text-muted-foreground mt-1">
                           PDF, Word, Excel, PowerPoint, CSV or TXT files (max. 10MB)
                         </p>
                       </div>
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        className="mt-2 border-primary/30 text-primary hover:bg-primary/5 shadow-sm"
+                      >
+                        Select File
+                      </Button>
                     </div>
                   )}
                 </div>
               </div>
             </CardContent>
-            <CardFooter className="flex justify-end space-x-2">
+            <CardFooter className="flex justify-end space-x-3 pt-6">
               <Button
                 type="button"
                 variant="outline"
+                className="px-5 shadow-sm hover:shadow transition-all"
                 onClick={() => navigate("/documents")}
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
+                className="px-6 font-medium shadow-md hover:shadow-lg transition-all"
                 disabled={!selectedStartupId || !documentType || !selectedFile || uploadMutation.isPending}
               >
-                {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
+                {uploadMutation.isPending ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Processing...
+                  </span>
+                ) : (
+                  <span className="flex items-center">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Upload Document
+                  </span>
+                )}
               </Button>
             </CardFooter>
           </form>
         </Card>
         
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload Guidelines</CardTitle>
+        <Card className="border border-primary/10 shadow-sm">
+          <CardHeader className="pb-3 bg-gradient-to-r from-secondary to-muted rounded-t-lg">
+            <CardTitle className="flex items-center">
+              <div className="w-8 h-8 mr-2 bg-primary/10 rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path></svg>
+              </div>
+              Upload Guidelines
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div>
-              <h3 className="font-medium">Supported File Types</h3>
-              <p className="text-secondary-500">PDF, Word, Excel, PowerPoint, CSV, TXT</p>
+          <CardContent className="space-y-5 text-sm pt-5">
+            <div className="flex items-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mr-3 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              </div>
+              <div>
+                <h3 className="font-medium text-base">Supported File Types</h3>
+                <p className="text-muted-foreground mt-1">PDF, Word, Excel, PowerPoint, CSV, TXT</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-medium">Maximum File Size</h3>
-              <p className="text-secondary-500">10MB per document</p>
+            
+            <div className="flex items-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mr-3 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+              <div>
+                <h3 className="font-medium text-base">Maximum File Size</h3>
+                <p className="text-muted-foreground mt-1">10MB per document</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-medium">Document Types</h3>
-              <ul className="list-disc ml-5 text-secondary-500 space-y-1">
-                <li><span className="font-medium text-secondary-900">Pitch Deck</span>: Presentation materials, investor decks</li>
-                <li><span className="font-medium text-secondary-900">Financials</span>: Financial statements, projections, metrics</li>
-                <li><span className="font-medium text-secondary-900">Legal</span>: Contracts, agreements, terms</li>
-                <li><span className="font-medium text-secondary-900">Tech</span>: Technical documentation, specs, architecture</li>
-                <li><span className="font-medium text-secondary-900">Market</span>: Market analysis, research, competitive landscape</li>
+            
+            <div className="rounded-lg bg-secondary/50 p-4 border border-border">
+              <h3 className="font-medium text-base mb-3 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary mr-2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Document Types
+              </h3>
+              <ul className="space-y-2 text-muted-foreground">
+                <li className="flex items-center">
+                  <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
+                  <span className="font-medium text-foreground">Pitch Deck:</span>
+                  <span className="ml-1">Presentation materials, investor decks</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
+                  <span className="font-medium text-foreground">Financials:</span>
+                  <span className="ml-1">Financial statements, projections, metrics</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
+                  <span className="font-medium text-foreground">Legal:</span>
+                  <span className="ml-1">Contracts, agreements, terms</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
+                  <span className="font-medium text-foreground">Tech:</span>
+                  <span className="ml-1">Technical documentation, specs, architecture</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
+                  <span className="font-medium text-foreground">Market:</span>
+                  <span className="ml-1">Market analysis, research, competitive insights</span>
+                </li>
               </ul>
             </div>
-            <div>
-              <h3 className="font-medium">Processing</h3>
-              <p className="text-secondary-500">Documents will be processed automatically to extract information that can be used by the AI assistant.</p>
+            
+            <div className="flex items-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mr-3 shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              </div>
+              <div>
+                <h3 className="font-medium text-base">AI Processing</h3>
+                <p className="text-muted-foreground mt-1">Documents are automatically processed to extract information for the AI assistant to analyze.</p>
+              </div>
             </div>
           </CardContent>
         </Card>
