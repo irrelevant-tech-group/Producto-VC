@@ -9,12 +9,25 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  * Genera embeddings vectoriales para un texto usando OpenAI
  * Los embeddings son representaciones numéricas del texto que capturan su significado semántico
  */
-export async function generateEmbedding(text: string): Promise<any> {
+export async function generateEmbedding(text: string): Promise<number[]> {
   try {
+    // Validar entrada
+    if (!text || text.trim() === '') {
+      throw new Error("El texto no puede estar vacío");
+    }
+    
+    // Limitar tamaño para evitar exceder límites de la API
+    const truncatedText = text.slice(0, 8000);
+    
     const response = await openai.embeddings.create({
       model: "text-embedding-3-large",
-      input: text,
+      input: truncatedText,
+      encoding_format: "float", // Asegura que obtenemos un vector de números flotantes
     });
+    
+    if (!response.data || response.data.length === 0) {
+      throw new Error("No se recibieron embeddings de la API de OpenAI");
+    }
     
     return response.data[0].embedding;
   } catch (error) {

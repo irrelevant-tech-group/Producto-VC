@@ -129,23 +129,35 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     
     // Store chunks in the database
     for (const chunkText of chunks) {
-      // In a complete implementation, we would generate embeddings here
-      // For now, we'll use a placeholder until pgvector integration
-      
-      // Create chunk in database
-      const chunk: InsertChunk = {
-        documentId: document.id,
-        startupId: document.startupId,
-        content: chunkText,
-        similarityScore: 0.5, // Default until we implement vector embeddings
-        metadata: {
-          source: document.name,
-          documentType: document.type,
-          extractedAt: metadata.extractedAt,
-        }
-      };
-      
-      await storage.createChunk(chunk);
+      try {
+        // Generar embedding para el chunk
+        const chunk: InsertChunk = {
+          documentId: document.id,
+          startupId: document.startupId,
+          content: chunkText,
+          metadata: {
+            source: document.name,
+            documentType: document.type,
+            extractedAt: metadata.extractedAt,
+          }
+        };
+        
+        // Usar el nuevo método que incluye generación de embedding
+        await storage.createChunkWithEmbedding(chunk, chunkText);
+      } catch (error) {
+        console.error(`Error al procesar chunk para documento ${document.id}:`, error);
+        // Crear chunk sin embedding en caso de error
+        await storage.createChunk({
+          documentId: document.id,
+          startupId: document.startupId,
+          content: chunkText,
+          metadata: {
+            source: document.name,
+            documentType: document.type,
+            extractedAt: metadata.extractedAt,
+          }
+        });
+      }
     }
     
     return {

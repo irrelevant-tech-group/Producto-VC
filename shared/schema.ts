@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, uuid, varchar, jsonb, real, pgEnum } from "drizzle-orm/pg-core";
+import { pgvector } from 'pgvector/drizzle';
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -83,8 +84,8 @@ export const chunks = pgTable("chunks", {
   documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: 'cascade' }),
   startupId: uuid("startup_id").notNull().references(() => startups.id, { onDelete: 'cascade' }),
   content: text("content").notNull(),
-  // For now, store text similarity metrics instead of vector embeddings
-  similarityScore: real("similarity_score"),
+  embedding: pgvector.vector(1536), // Vector dimension para OpenAI text-embedding-3-large
+  similarityScore: real("similarity_score"), // Mantener para compatibilidad
   metadata: jsonb("metadata"), // { source, page, category, entities, metrics, timestamp }
 });
 
@@ -198,6 +199,7 @@ export const insertDocumentSchema = createInsertSchema(documents, {
 
 export const insertChunkSchema = createInsertSchema(chunks, {
   id: z.string().uuid().optional(),
+  embedding: pgvector.schema.vector(1536).optional(),
 }).omit({ id: true });
 
 export const insertMemoSchema = createInsertSchema(memos, {

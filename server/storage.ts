@@ -14,6 +14,7 @@ import {
   ActivityItem,
   DueDiligenceProgress
 } from "@shared/types";
+import { generateEmbedding } from "./services/openai";
 
 export interface IStorage {
   // User operations
@@ -37,6 +38,10 @@ export interface IStorage {
   // Chunk operations
   createChunk(chunk: InsertChunk): Promise<Chunk>;
   searchChunks(query: string, startupId?: string, limit?: number): Promise<Chunk[]>;
+  
+  // Nuevos métodos para búsqueda vectorial
+  searchChunksByEmbedding(embedding: number[], startupId?: string, limit?: number): Promise<Chunk[]>;
+  createChunkWithEmbedding(chunk: InsertChunk, text: string): Promise<Chunk>;
   
   // Memo operations
   getMemo(id: string): Promise<Memo | undefined>;
@@ -145,9 +150,97 @@ export class DatabaseStorage implements IStorage {
     const [chunk] = await db.insert(chunks).values(insertChunk).returning();
     return chunk;
   }
+  
+  // Método actualizado para crear chunks con embedding
+  async createChunkWithEmbedding(insertChunk: InsertChunk, text: string): Promise<Chunk> {
+    try {
+      // Generar embedding para el texto
+      const embedding = await generateEmbedding(text);
+      
+      // Crear chunk con el embedding generado
+      const [chunk] = await db.insert(chunks)
+        .values({ ...insertChunk, embedding })
+        .returning();
+      
+      return chunk;
+    } catch (error) {
+      console.error("Error al crear chunk con embedding:", error);
+      // Fallback: crear chunk sin embedding en caso de error
+      return this.createChunk(insertChunk);
+    }
+  }
+  
+  // Búsqueda semántica usando pgvector
+  async searchChunksByEmbedding(embedding: number[], startupId?: string, limit = 5): Promise<Chunk[]> {
+    try {
+      // Validar uuid
+      const isValidUUID = (id: string) => {
+        return id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      };
+      
+      if (startupId && !isValidUUID(startupId)) {
+        throw new Error("Invalid startupId format");
+      }
+      
+      // Utilizar búsqueda aproximada con cosine_similarity
+      let sqlQuery;
+      let result;
+      
+      if (startupId) {
+        // Búsqueda filtrada por startup
+        sqlQuery = `
+          SELECT *, 1 - (embedding <=> $1) as similarity
+          FROM chunks 
+          WHERE startup_id = $2 AND embedding IS NOT NULL
+          ORDER BY similarity DESC
+          LIMIT $3
+        `;
+        
+        result = await db.execute(
+          sql.raw(sqlQuery),
+          [embedding, startupId, limit]
+        );
+      } else {
+        // Búsqueda global
+        sqlQuery = `
+          SELECT *, 1 - (embedding <=> $1) as similarity
+          FROM chunks 
+          WHERE embedding IS NOT NULL
+          ORDER BY similarity DESC
+          LIMIT $2
+        `;
+        
+        result = await db.execute(
+          sql.raw(sqlQuery),
+          [embedding, limit]
+        );
+      }
+      
+      return result.rows as Chunk[];
+    } catch (error) {
+      console.error("Error en búsqueda vectorial:", error);
+      
+      // Fallback a búsqueda de texto si hay error
+      if (startupId) {
+        return this.searchChunks("", startupId, limit);
+      }
+      return [];
+    }
+  }
 
   async searchChunks(query: string, startupId?: string, limit = 5): Promise<Chunk[]> {
     try {
+      // Si hay una consulta, intentar usar búsqueda vectorial
+      if (query && query.trim() !== '') {
+        try {
+          const queryEmbedding = await generateEmbedding(query);
+          return await this.searchChunksByEmbedding(queryEmbedding, startupId, limit);
+        } catch (embeddingError) {
+          console.error("Error en búsqueda vectorial, fallback a búsqueda de texto:", embeddingError);
+          // Continuar con búsqueda de texto como fallback
+        }
+      }
+      
       // Validar que startupId es un UUID válido si está presente
       const isValidUUID = (id: string) => {
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
