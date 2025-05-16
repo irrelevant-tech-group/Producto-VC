@@ -87,7 +87,7 @@ export default function AiAssistant() {
     try {
       // Call AI API
       const response = await askAI({
-        startupId: selectedStartupId || undefined,
+        startupId: selectedStartupId === "all" ? undefined : selectedStartupId,
         question: currentQuestion,
         includeSourceDocuments: showSources
       });
