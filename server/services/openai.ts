@@ -329,56 +329,132 @@ export async function generateMemoSection(startupId: string, section: string): P
       throw new Error("Startup not found");
     }
     
-    // Get relevant chunks for this startup and section topic
-    const relevantChunks = await storage.searchChunks(section, startupId, 15);
+    // Obtener todos los chunks para este startup
+    const allChunks = await storage.searchChunks("", startupId, 30);
     
-    if (relevantChunks.length === 0) {
+    if (allChunks.length === 0) {
       return {
         title: section,
-        content: "Insufficient data available to generate this section. Please upload more relevant documents.",
+        content: "No hay suficientes datos disponibles para generar esta sección. Por favor, sube más documentos relevantes.",
       };
     }
     
-    // Prepare context from chunks
-    const context = relevantChunks.map(chunk => chunk.content).join("\n\n");
+    // Usar embeddings para encontrar los chunks más relevantes para esta sección
+    let relevantChunks = [];
     
-    // Create section content with OpenAI
+    try {
+      // Generamos el embedding para el nombre de la sección con contexto adicional
+      const sectionContext = `Sección de memo de inversión: ${section}. 
+      Información relacionada con ${section} de un startup de ${startup.vertical} 
+      en etapa ${startup.stage} ubicado en ${startup.location}.`;
+      
+      const sectionEmbedding = await generateEmbedding(sectionContext);
+      
+      // Calculamos la similitud semántica de cada chunk con la sección
+      const chunksWithScores = await Promise.all(allChunks.map(async (chunk) => {
+        try {
+          // Generamos embedding para el contenido del chunk
+          const chunkEmbedding = await generateEmbedding(chunk.content);
+          
+          // Calculamos similitud con la sección
+          const similarity = calculateCosineSimilarity(sectionEmbedding, chunkEmbedding);
+          
+          return {
+            ...chunk,
+            semanticScore: similarity
+          };
+        } catch (error) {
+          console.error(`Error al calcular similitud para el chunk ${chunk.id}:`, error);
+          return {
+            ...chunk,
+            semanticScore: 0
+          };
+        }
+      }));
+      
+      // Ordenamos por relevancia y tomamos los más similares
+      const sortedChunks = chunksWithScores.sort((a, b) => 
+        (b.semanticScore || 0) - (a.semanticScore || 0)
+      );
+      
+      // Tomamos los 10 chunks más relevantes por similitud semántica
+      relevantChunks = sortedChunks.slice(0, 10);
+      console.log(`Seleccionados ${relevantChunks.length} chunks más relevantes por similitud semántica`);
+      
+    } catch (embeddingError) {
+      console.error("Error al usar embeddings para la sección:", embeddingError);
+      
+      // En caso de error, usamos búsqueda por texto tradicional
+      relevantChunks = await storage.searchChunks(section, startupId, 15);
+      console.log(`Usando ${relevantChunks.length} chunks por búsqueda de texto tradicional`);
+    }
+    
+    // Si aún no tenemos chunks relevantes, usamos algunos genéricos del startup
+    if (relevantChunks.length === 0) {
+      relevantChunks = allChunks.slice(0, 5);
+      console.log("Usando chunks genéricos del startup por falta de resultados específicos");
+    }
+    
+    // Preparamos el contexto con información de la fuente
+    const context = relevantChunks
+      .map(chunk => {
+        const sourceName = chunk.metadata?.source || 'Documento sin título';
+        const score = chunk.semanticScore ? ` (relevancia: ${(chunk.semanticScore * 100).toFixed(1)}%)` : '';
+        return `--- De "${sourceName}"${score} ---\n${chunk.content}`;
+      })
+      .join("\n\n");
+    
+    // Creamos el contenido con OpenAI usando un prompt más detallado
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
           content: 
-            "You are an investment memo writer for a venture capital firm. " +
-            "Generate professional, well-structured content for the requested section of an investment memo. " +
-            "Use only the provided context information. If insufficient data is available, " +
-            "note the information gaps clearly. Use the voice and style of an experienced investment analyst."
+            "Eres un analista de inversiones de capital de riesgo especializado en escribir memos de inversión. " +
+            "Genera contenido profesional y bien estructurado para la sección solicitada del memo. " +
+            "Usa únicamente la información del contexto proporcionado y cita las fuentes cuando sea posible. " +
+            "Si la información disponible es insuficiente, señala claramente las brechas de información. " +
+            "Usa un tono analítico y profesional propio de un analista de inversiones experimentado. " +
+            "Estructura el contenido con subtítulos cuando sea apropiado."
         },
         {
           role: "user",
           content: `
-          Startup: ${startup.name}
-          Vertical: ${startup.vertical}
-          Stage: ${startup.stage}
-          Location: ${startup.location}
-          Amount sought: ${startup.amountSought} ${startup.currency}
+          Información del startup:
+          - Nombre: ${startup.name}
+          - Vertical/Sector: ${startup.vertical}
+          - Etapa: ${startup.stage}
+          - Ubicación: ${startup.location}
+          - Monto buscado: ${startup.amountSought} ${startup.currency}
           
-          Section to generate: ${section}
+          SECCIÓN A GENERAR: ${section}
           
-          Context information:
+          Información de contexto disponible:
           ${context}
           
-          Generate a well-structured, professional ${section} section for an investment memo.`
+          Instrucciones:
+          1. Genera una sección de "${section}" completa y profesional para un memo de inversión.
+          2. Estructura el contenido de manera clara y lógica.
+          3. Incluye datos concretos del contexto proporcionado.
+          4. Mantén un tono analítico y objetivo.
+          5. Extensión aproximada: 400-800 palabras.`
         }
       ],
+      max_tokens: 1200,
     });
     
-    const content = response.choices[0].message.content || "Unable to generate content for this section.";
+    const content = response.choices[0].message.content || "No se pudo generar contenido para esta sección.";
     
-    // Collect document sources
-    const sources = relevantChunks.map(chunk => ({
-      documentId: chunk.documentId,
-      content: chunk.content.substring(0, 100) + "..."
+    // Recopilamos las fuentes de los documentos con información enriquecida
+    const sources = await Promise.all(relevantChunks.map(async chunk => {
+      const document = await storage.getDocument(chunk.documentId);
+      return {
+        documentId: chunk.documentId,
+        documentName: document?.name || "Documento sin nombre",
+        content: chunk.content.substring(0, 150) + "...",
+        relevanceScore: chunk.semanticScore || chunk.similarityScore || 0
+      };
     }));
     
     return {
@@ -388,10 +464,10 @@ export async function generateMemoSection(startupId: string, section: string): P
       lastEdited: new Date().toISOString()
     };
   } catch (error) {
-    console.error(`Error generating memo section ${section}:`, error);
+    console.error(`Error al generar la sección ${section} del memo:`, error);
     return {
       title: section,
-      content: "Error generating this section. Please try again later.",
+      content: "Error al generar esta sección. Por favor, intenta nuevamente más tarde.",
     };
   }
 }
