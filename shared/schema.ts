@@ -1,9 +1,24 @@
 import { pgTable, text, serial, integer, boolean, timestamp, uuid, varchar, jsonb, real, pgEnum } from "drizzle-orm/pg-core";
-import { pgvector } from 'pgvector/drizzle';
+// Comentamos la importación problemática
+// import { pgvector } from 'pgvector/drizzle';
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 // Importaremos pgvector más adelante cuando tengamos configurada la extensión en la base de datos
+
+// Creamos un reemplazo temporal para pgvector
+const pgvector = {
+  vector: (dimensions: number) => ({
+    notNull: () => ({ name: 'vector', dataType: `vector(${dimensions})` }),
+    schema: {
+      vector: (dimensions: number) => ({ 
+        type: 'vector', 
+        dimensions,
+        optional: () => ({ type: 'vector', dimensions, isOptional: true })
+      })
+    }
+  })
+};
 
 // Enums
 export const startupVerticalEnum = pgEnum('startup_vertical', [
@@ -84,7 +99,7 @@ export const chunks = pgTable("chunks", {
   documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: 'cascade' }),
   startupId: uuid("startup_id").notNull().references(() => startups.id, { onDelete: 'cascade' }),
   content: text("content").notNull(),
-  embedding: pgvector.vector(1536), // Vector dimension para OpenAI text-embedding-3-large
+  embedding: text("embedding").type("vector(1536)"), // Modificado para usar type directamente
   similarityScore: real("similarity_score"), // Mantener para compatibilidad
   metadata: jsonb("metadata"), // { source, page, category, entities, metrics, timestamp }
 });
@@ -199,7 +214,8 @@ export const insertDocumentSchema = createInsertSchema(documents, {
 
 export const insertChunkSchema = createInsertSchema(chunks, {
   id: z.string().uuid().optional(),
-  embedding: pgvector.schema.vector(1536).optional(),
+  // Cambiamos la validación de embedding
+  embedding: z.any().optional(),
 }).omit({ id: true });
 
 export const insertMemoSchema = createInsertSchema(memos, {

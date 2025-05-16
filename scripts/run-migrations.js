@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Pool } from '@neondatabase/serverless';
+import pg from 'pg';
 import dotenv from 'dotenv';
 
-// Configurar dotenv manualmente ya que no estamos usando -r dotenv/config
+// Configurar dotenv
 dotenv.config();
 
 // Obtener el directorio actual en ESM
@@ -19,20 +19,36 @@ async function runMigrations() {
     process.exit(1);
   }
   
+  // Usar pg estándar
+  const { Pool } = pg;
+  
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
   });
   
+  let client;
+  
   try {
+    console.log('Conectando a la base de datos...');
+    client = await pool.connect();
+    console.log('Conexión exitosa a la base de datos');
+    
     const migrationsDir = path.join(__dirname, '..', 'migrations');
+    
+    // Filtrar para incluir solo 0001_add_pgvector.sql y excluir setup-db.sql
     const migrationFiles = fs.readdirSync(migrationsDir)
       .filter(file => file.endsWith('.sql'))
-      .sort(); // Ordenar archivos alfabéticamente
+      .filter(file => file === '0001_add_pgvector.sql') // Solo ejecutar la primera migración
+      .sort();
     
     console.log(`Encontradas ${migrationFiles.length} migraciones para ejecutar`);
     
     // Crear tabla de migraciones si no existe
-    await pool.query(`
+    console.log('Creando tabla de migraciones si no existe...');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS migrations (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
@@ -41,7 +57,7 @@ async function runMigrations() {
     `);
     
     // Obtener migraciones ya ejecutadas
-    const { rows: executedMigrations } = await pool.query('SELECT name FROM migrations');
+    const { rows: executedMigrations } = await client.query('SELECT name FROM migrations');
     const executedMigrationNames = executedMigrations.map(row => row.name);
     
     for (const file of migrationFiles) {
@@ -54,13 +70,18 @@ async function runMigrations() {
       const filePath = path.join(migrationsDir, file);
       const sql = fs.readFileSync(filePath, 'utf8');
       
-      // Ejecutar la migración
-      await pool.query(sql);
-      
-      // Registrar migración ejecutada
-      await pool.query('INSERT INTO migrations (name) VALUES ($1)', [file]);
-      
-      console.log(`Migración ${file} ejecutada con éxito`);
+      try {
+        // Ejecutar la migración
+        await client.query(sql);
+        
+        // Registrar migración ejecutada
+        await client.query('INSERT INTO migrations (name) VALUES ($1)', [file]);
+        
+        console.log(`Migración ${file} ejecutada con éxito`);
+      } catch (error) {
+        console.error(`Error al ejecutar migración ${file}:`, error.message);
+        throw error;
+      }
     }
     
     console.log('Todas las migraciones ejecutadas correctamente');
@@ -68,8 +89,15 @@ async function runMigrations() {
     console.error('Error al ejecutar migraciones:', error);
     process.exit(1);
   } finally {
+    if (client) {
+      client.release();
+    }
     await pool.end();
+    console.log('Conexión a la base de datos cerrada');
   }
 }
 
-runMigrations();
+runMigrations().catch(error => {
+  console.error('Error en la ejecución de migraciones:', error);
+  process.exit(1);
+});

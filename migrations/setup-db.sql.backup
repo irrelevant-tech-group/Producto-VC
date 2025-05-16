@@ -1,0 +1,98 @@
+-- Crear extensión pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Crear enums
+CREATE TYPE startup_vertical AS ENUM ('fintech', 'saas', 'marketplace', 'ecommerce', 'ai', 'cleantech', 'other');
+CREATE TYPE startup_stage AS ENUM ('pre-seed', 'seed', 'series-a');
+CREATE TYPE startup_status AS ENUM ('active', 'declined', 'invested', 'archived');
+CREATE TYPE currency AS ENUM ('USD', 'MXN', 'COP', 'BRL');
+CREATE TYPE document_type AS ENUM ('pitch-deck', 'financials', 'legal', 'tech', 'market', 'other');
+CREATE TYPE processing_status AS ENUM ('pending', 'processing', 'completed', 'failed');
+CREATE TYPE memo_status AS ENUM ('draft', 'review', 'final');
+
+-- Crear tablas
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  position TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS startups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  vertical startup_vertical NOT NULL,
+  stage startup_stage NOT NULL,
+  location TEXT NOT NULL,
+  amount_sought REAL,
+  currency currency DEFAULT 'USD',
+  primary_contact JSONB,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  status startup_status DEFAULT 'active',
+  alignment_score REAL,
+  last_interaction TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  startup_id UUID NOT NULL REFERENCES startups(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type document_type NOT NULL,
+  file_url TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  uploaded_at TIMESTAMP DEFAULT NOW(),
+  uploaded_by INTEGER REFERENCES users(id),
+  processed BOOLEAN DEFAULT FALSE,
+  processing_status processing_status DEFAULT 'pending',
+  metadata JSONB
+);
+
+CREATE TABLE IF NOT EXISTS chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  startup_id UUID NOT NULL REFERENCES startups(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  embedding vector(1536),
+  similarity_score REAL,
+  metadata JSONB
+);
+
+CREATE TABLE IF NOT EXISTS investment_memos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  startup_id UUID NOT NULL REFERENCES startups(id) ON DELETE CASCADE,
+  version INTEGER DEFAULT 1,
+  status memo_status DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  updated_by INTEGER REFERENCES users(id),
+  sections JSONB,
+  export_urls JSONB
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id INTEGER REFERENCES users(id),
+  startup_id UUID REFERENCES startups(id),
+  document_id UUID REFERENCES documents(id),
+  memo_id UUID REFERENCES memos(id),
+  type TEXT NOT NULL,
+  content TEXT,
+  metadata JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Crear índices
+CREATE INDEX IF NOT EXISTS chunks_embedding_idx 
+ON chunks USING hnsw(embedding vector_l2_ops) 
+WITH (
+  m = 16,
+  ef_construction = 64
+);
+
+CREATE INDEX IF NOT EXISTS chunks_startup_id_idx ON chunks(startup_id);
+CREATE INDEX IF NOT EXISTS chunks_document_id_idx ON chunks(document_id);
