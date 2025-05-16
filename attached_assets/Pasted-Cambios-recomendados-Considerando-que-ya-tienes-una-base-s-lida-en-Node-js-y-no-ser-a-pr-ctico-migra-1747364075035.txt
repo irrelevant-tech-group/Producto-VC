@@ -1,0 +1,112 @@
+Cambios recomendados
+Considerando que ya tienes una base sólida en Node.js y no sería práctico migrar todo a Python en esta etapa, recomendaría los siguientes cambios para acercar el proyecto a la especificación original:
+1. Mejorar el procesamiento de documentos
+javascript// En server/services/documentProcessor.ts
+import pdf from 'pdf-parse';
+import mammoth from 'mammoth';
+import xlsx from 'xlsx';
+
+// Implementar extractores específicos por tipo de documento
+async function extractTextFromDocument(document, buffer) {
+  switch(document.fileType) {
+    case 'application/pdf':
+      return await extractFromPDF(buffer);
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      return await extractFromDOCX(buffer);
+    case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+      return await extractFromXLSX(buffer);
+    // Más tipos...
+    default:
+      return buffer.toString('utf-8');
+  }
+}
+
+async function extractFromPDF(buffer) {
+  const data = await pdf(buffer);
+  return data.text;
+}
+
+async function extractFromDOCX(buffer) {
+  const result = await mammoth.extractRawText({buffer});
+  return result.value;
+}
+2. Implementar pgvector para búsqueda vectorial
+javascript// En server/db.ts
+import { pgvector } from 'pgvector/drizzle';
+
+// Agregar a la definición de schema
+export const chunks = pgTable("chunks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: 'cascade' }),
+  startupId: uuid("startup_id").notNull().references(() => startups.id, { onDelete: 'cascade' }),
+  content: text("content").notNull(),
+  embedding: pgvector.vector(1536), // Dimensión para OpenAI embeddings
+  metadata: jsonb("metadata"),
+});
+
+// En server/services/openai.ts
+async function generateEmbedding(text) {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-large",
+    input: text,
+  });
+  return response.data[0].embedding;
+}
+
+// En storage.ts - mejora la búsqueda vectorial
+async function searchChunks(query, startupId, limit = 5) {
+  // Generar embedding para la consulta
+  const embedding = await generateEmbedding(query);
+  
+  // Realizar búsqueda vectorial con pgvector
+  let sqlQuery;
+  
+  if (startupId) {
+    sqlQuery = `
+      SELECT *, embedding <-> $1 as similarity
+      FROM chunks 
+      WHERE startup_id = $2
+      ORDER BY similarity
+      LIMIT $3
+    `;
+    
+    const result = await db.query(sqlQuery, [embedding, startupId, limit]);
+    return result.rows;
+  } else {
+    // Búsqueda global...
+  }
+}
+3. Mejorar el generador de memo con recuperación contextual
+javascript// En server/services/memoGenerator.ts
+async function generateMemoSection(startupId, section) {
+  // Obtener chunks relevantes para la sección usando búsqueda vectorial
+  const sectionEmbedding = await generateEmbedding(section);
+  const relevantChunks = await storage.searchChunksByEmbedding(sectionEmbedding, startupId, 10);
+  
+  // Preparar el contexto para el prompt
+  const context = relevantChunks.map(chunk => chunk.content).join("\n\n");
+  
+  // Llamar a OpenAI con el contexto relevante
+  // ...resto del código igual...
+}
+4. Mejorar el asistente IA para utilizar búsqueda real
+javascript// En server/services/openai.ts
+async function processQuery(request) {
+  const { startupId, question } = request;
+  
+  // Generar embedding para la pregunta
+  const questionEmbedding = await generateEmbedding(question);
+  
+  // Recuperar chunks relevantes
+  const relevantChunks = await storage.searchChunksByEmbedding(questionEmbedding, startupId, 5);
+  
+  // Continuar con la lógica existente, pero usando los chunks realmente relevantes...
+}
+Camino a seguir
+
+Prioriza el sistema de embeddings y búsqueda vectorial: Es el corazón de la solución y lo que la hace realmente potente.
+Mejora el procesamiento de documentos: Implementa la extracción real de texto por tipo de documento en lugar de simularlo.
+Completa la integración con OpenAI: Mejora los prompts y el manejo de contexto para generar mejores Investment Memos.
+Agrega más controles de calidad: Implementa validación de los memos generados y un flujo de aprobación.
+
+En general, vas por buen camino. El proyecto tiene una base sólida y muchas funcionalidades ya implementadas.

@@ -2,6 +2,7 @@ import { pgTable, text, serial, integer, boolean, timestamp, uuid, varchar, json
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+// Importaremos pgvector más adelante cuando tengamos configurada la extensión en la base de datos
 
 // Enums
 export const startupVerticalEnum = pgEnum('startup_vertical', [

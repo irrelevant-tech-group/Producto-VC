@@ -6,7 +6,58 @@ import { storage } from "../storage";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * Processes a natural language query and returns an answer with optional sources
+ * Genera embeddings vectoriales para un texto usando OpenAI
+ * Los embeddings son representaciones numéricas del texto que capturan su significado semántico
+ */
+export async function generateEmbedding(text: string): Promise<any> {
+  try {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-large",
+      input: text,
+    });
+    
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("Error al generar embedding:", error);
+    throw new Error(`No se pudo generar embedding: ${error.message}`);
+  }
+}
+
+/**
+ * Calcula la similitud de coseno entre dos vectores
+ * Valores cercanos a 1 indican alta similitud, cercanos a 0 indican baja similitud
+ */
+export function calculateCosineSimilarity(vectorA: number[], vectorB: number[]): number {
+  if (vectorA.length !== vectorB.length) {
+    throw new Error("Los vectores deben tener la misma dimensión");
+  }
+  
+  // Producto escalar
+  let dotProduct = 0;
+  // Magnitudes
+  let magnitudeA = 0;
+  let magnitudeB = 0;
+  
+  for (let i = 0; i < vectorA.length; i++) {
+    dotProduct += vectorA[i] * vectorB[i];
+    magnitudeA += vectorA[i] * vectorA[i];
+    magnitudeB += vectorB[i] * vectorB[i];
+  }
+  
+  magnitudeA = Math.sqrt(magnitudeA);
+  magnitudeB = Math.sqrt(magnitudeB);
+  
+  // Evitar división por cero
+  if (magnitudeA === 0 || magnitudeB === 0) {
+    return 0;
+  }
+  
+  return dotProduct / (magnitudeA * magnitudeB);
+}
+
+/**
+ * Procesa una consulta en lenguaje natural y devuelve una respuesta con fuentes opcionales
+ * Implementa búsqueda semántica utilizando embeddings para mejorar la calidad de las respuestas
  */
 export async function processQuery(request: AiQueryRequest): Promise<AiQueryResponse> {
   const { startupId, question, includeSourceDocuments = true } = request;
@@ -14,63 +65,135 @@ export async function processQuery(request: AiQueryRequest): Promise<AiQueryResp
   try {
     console.log(`Procesando consulta: "${question}" para startupId: ${startupId || 'todos'}`);
     
-    // Primero intentemos obtener todos los chunks para ese startup si existen
+    // Generar embedding para la consulta
+    let questionEmbedding;
+    try {
+      questionEmbedding = await generateEmbedding(question);
+      console.log("Embedding de consulta generado correctamente");
+    } catch (embeddingError) {
+      console.error("Error al generar embedding para la consulta:", embeddingError);
+      // Si falla la generación de embedding, continuamos con la búsqueda de texto normal
+    }
+    
+    // Primero obtenemos todos los chunks para ese startup si existen
+    let allChunks = [];
     let relevantChunks = [];
     
     if (startupId && startupId !== "all") {
       // Si se seleccionó un startup específico, obtener todos sus chunks
       console.log("Buscando todos los chunks para el startup:", startupId);
-      const allStartupChunks = await storage.searchChunks("", startupId, 10);
-      console.log(`Encontrados ${allStartupChunks.length} chunks totales para el startup`);
+      allChunks = await storage.searchChunks("", startupId, 20);
+      console.log(`Encontrados ${allChunks.length} chunks totales para el startup`);
       
-      if (allStartupChunks.length > 0) {
-        // Si hay chunks disponibles, intentamos filtrar por relevancia primero
-        const filteredChunks = await storage.searchChunks(question, startupId);
-        console.log(`Filtrados ${filteredChunks.length} chunks relevantes a la consulta`);
-        
-        // Si encontramos chunks relevantes los usamos, si no usamos todos
-        relevantChunks = filteredChunks.length > 0 ? filteredChunks : allStartupChunks;
+      // También buscamos con texto para tener resultados de ambos métodos
+      const textSearchChunks = await storage.searchChunks(question, startupId);
+      console.log(`Encontrados ${textSearchChunks.length} chunks por búsqueda de texto`);
+      
+      // Añadimos los resultados de búsqueda de texto si no están ya en allChunks
+      for (const chunk of textSearchChunks) {
+        if (!allChunks.some(c => c.id === chunk.id)) {
+          allChunks.push(chunk);
+        }
       }
     } else {
       // Buscar en todos los startups
       console.log("Buscando chunks en todos los startups");
-      relevantChunks = await storage.searchChunks(question);
+      allChunks = await storage.searchChunks("", undefined, 30);
+      
+      // También buscamos con texto
+      const textSearchChunks = await storage.searchChunks(question);
+      
+      // Combinamos los resultados
+      for (const chunk of textSearchChunks) {
+        if (!allChunks.some(c => c.id === chunk.id)) {
+          allChunks.push(chunk);
+        }
+      }
     }
     
-    console.log(`Usando ${relevantChunks.length} chunks para responder`);
-    
-    if (relevantChunks.length === 0) {
-      console.log("No se encontraron chunks relevantes");
+    if (allChunks.length === 0) {
+      console.log("No se encontraron chunks");
       return {
-        answer: "I don't have enough information to answer that question. Try uploading more documents or rephrasing your question."
+        answer: "No tengo suficiente información para responder esa pregunta. Considera subir más documentos relacionados con el startup."
       };
     }
     
-    // Prepare context from chunks
-    const context = relevantChunks.map(chunk => chunk.content).join("\n\n");
+    // Si tenemos embedding de la consulta, calculamos la similitud semántica
+    if (questionEmbedding) {
+      const chunksWithScores = await Promise.all(allChunks.map(async (chunk) => {
+        try {
+          // Generamos embedding para el contenido del chunk
+          const chunkEmbedding = await generateEmbedding(chunk.content);
+          
+          // Calculamos similitud con la consulta
+          const similarity = calculateCosineSimilarity(questionEmbedding, chunkEmbedding);
+          
+          return {
+            ...chunk,
+            semanticScore: similarity
+          };
+        } catch (error) {
+          console.error(`Error al calcular similitud para chunk ${chunk.id}:`, error);
+          // Si hay error, usamos similarityScore existente o un valor bajo
+          return {
+            ...chunk,
+            semanticScore: chunk.similarityScore || 0.1
+          };
+        }
+      }));
+      
+      // Ordenamos por similitud semántica y tomamos los más relevantes
+      const sortedChunks = chunksWithScores.sort((a, b) => 
+        (b.semanticScore || 0) - (a.semanticScore || 0)
+      );
+      
+      // Tomamos los chunks más relevantes para la respuesta (máximo 5)
+      relevantChunks = sortedChunks.slice(0, 5);
+      console.log(`Seleccionados ${relevantChunks.length} chunks por similitud semántica`);
+    } else {
+      // Si no pudimos usar embeddings, usamos la búsqueda de texto tradicional
+      relevantChunks = await storage.searchChunks(question, startupId);
+      
+      // Si no hay resultados, usamos todos los chunks disponibles (limitados)
+      if (relevantChunks.length === 0) {
+        relevantChunks = allChunks.slice(0, 5);
+      }
+      
+      console.log(`Usando ${relevantChunks.length} chunks encontrados por búsqueda de texto`);
+    }
     
-    // Call OpenAI API
+    // Preparamos el contexto con información de la fuente
+    const context = relevantChunks
+      .map(chunk => {
+        const sourceName = chunk.metadata?.source || 'Documento';
+        return `--- Fragmento de "${sourceName}" ---\n${chunk.content}`;
+      })
+      .join("\n\n");
+    
+    // Llamamos a la API de OpenAI con el contexto enriquecido
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
           content: 
-            "You are an investment analyst assistant helping with startup due diligence. " +
-            "Answer questions based on the context provided, and only use that information. " +
-            "If you don't know or the information isn't in the context, say so. " +
-            "Be concise, accurate, and focus on facts and insights that would matter to investors."
+            "Eres un asistente analista de inversiones especializado en startups. " +
+            "Responde a las preguntas basándote únicamente en el contexto proporcionado. " +
+            "Si la información no está en el contexto o no tienes suficientes datos, indícalo claramente. " +
+            "Sé conciso, preciso y enfócate en datos e insights relevantes para inversionistas. " +
+            "Menciona la fuente de la información cuando corresponda."
         },
         {
           role: "user",
-          content: `Context information from startup documents:\n\n${context}\n\nQuestion: ${question}`
+          content: `Contexto de los documentos del startup:\n\n${context}\n\nPregunta: ${question}`
         }
       ],
+      max_tokens: 800,
     });
     
-    const answer = response.choices[0].message.content || "Unable to generate an answer.";
+    const answer = response.choices[0].message.content || "No se pudo generar una respuesta.";
     
-    // Prepare sources if requested
+    // Preparamos las fuentes si se solicitaron
     let sources;
     if (includeSourceDocuments) {
       sources = await Promise.all(
@@ -78,8 +201,9 @@ export async function processQuery(request: AiQueryRequest): Promise<AiQueryResp
           const document = await storage.getDocument(chunk.documentId);
           return {
             documentId: chunk.documentId,
-            documentName: document?.name || "Unknown document",
+            documentName: document?.name || "Documento desconocido",
             content: chunk.content,
+            relevanceScore: chunk.semanticScore || chunk.similarityScore || 0
           };
         })
       );
@@ -90,8 +214,8 @@ export async function processQuery(request: AiQueryRequest): Promise<AiQueryResp
       sources,
     };
   } catch (error) {
-    console.error("Error processing query:", error);
-    throw new Error("Failed to process your query. Please try again later.");
+    console.error("Error al procesar la consulta:", error);
+    throw new Error("No se pudo procesar tu consulta. Por favor, intenta de nuevo más tarde.");
   }
 }
 
@@ -105,41 +229,93 @@ export async function analyzeStartupAlignment(startupId: string): Promise<number
       throw new Error("Startup not found");
     }
     
-    // Get relevant chunks for this startup
+    // Obtenemos los documentos y chunks para este startup
     const documents = await storage.getDocumentsByStartup(startupId);
     if (documents.length === 0) {
-      return 0; // Not enough data to analyze
+      return 0; // No hay suficientes datos para analizar
     }
     
-    // In a real implementation, we would analyze the data more thoroughly
-    // For simplicity in this MVP, we'll generate a random score based on startup stage and vertical
+    // Obtenemos todos los chunks del startup
+    const allChunks = await storage.searchChunks("", startupId, 30);
     
-    // Preferred verticals for H20 Capital
-    const preferredVerticals = ['fintech', 'saas', 'ai'];
-    const verticalBonus = preferredVerticals.includes(startup.vertical) ? 0.3 : 0;
+    // Tesis de inversión de H20 Capital (simplificada)
+    const investmentThesis = `
+      H20 Capital busca invertir en startups tecnológicas innovadoras con alto potencial de crecimiento, 
+      preferentemente en etapas pre-seed y seed. Nos enfocamos en los siguientes sectores:
+      
+      1. Fintech: Soluciones que transformen servicios financieros tradicionales con tecnología.
+      2. SaaS: Plataformas B2B con modelos de ingresos recurrentes y alto potencial de escala.
+      3. Inteligencia Artificial: Empresas que apliquen IA para resolver problemas empresariales reales.
+      4. Marketplace: Plataformas que conecten oferta y demanda en mercados fragmentados.
+      
+      Buscamos equipos fuertes con experiencia en el sector, tracción demostrable, 
+      y potencial para expandirse internacionalmente. Valoramos modelos de negocio 
+      con economías de escala claras y ventajas competitivas defensibles.
+    `;
     
-    // Preferred stages
+    let alignmentScore = 0;
+    
+    // Si tenemos suficientes datos, usamos embeddings para un análisis semántico
+    if (allChunks.length > 0) {
+      try {
+        // Generamos embedding para la tesis de inversión
+        const thesisEmbedding = await generateEmbedding(investmentThesis);
+        
+        // Calculamos la similitud semántica de cada chunk con la tesis
+        const chunkScores = await Promise.all(allChunks.map(async (chunk) => {
+          try {
+            const chunkEmbedding = await generateEmbedding(chunk.content);
+            return calculateCosineSimilarity(thesisEmbedding, chunkEmbedding);
+          } catch (err) {
+            console.error("Error calculando similitud para chunk:", err);
+            return 0; // Valor por defecto si falla el cálculo
+          }
+        }));
+        
+        // Tomamos los mejores puntajes (top 5) y calculamos el promedio
+        const topScores = chunkScores.sort((a, b) => b - a).slice(0, 5);
+        const semanticScore = topScores.reduce((sum, score) => sum + score, 0) / topScores.length;
+        
+        // El puntaje semántico representa hasta el 50% del puntaje final
+        alignmentScore += semanticScore * 0.5;
+        
+        console.log(`Puntaje semántico: ${semanticScore}`);
+      } catch (embeddingError) {
+        console.error("Error al usar embeddings para análisis de alineamiento:", embeddingError);
+        // Continuamos con el análisis tradicional si fallan los embeddings
+      }
+    }
+    
+    // Análisis tradicional basado en criterios explícitos (representa el otro 50%)
+    
+    // Analizamos el vertical (sector)
+    const preferredVerticals = ['fintech', 'saas', 'ai', 'marketplace'];
+    const verticalScore = preferredVerticals.includes(startup.vertical) ? 0.15 : 0.05;
+    
+    // Analizamos la etapa
     const stageScores = {
-      'pre-seed': 0.25,
-      'seed': 0.25,
-      'series-a': 0.1
+      'pre-seed': 0.15,
+      'seed': 0.15,
+      'series-a': 0.05
     };
-    
-    // Base score + vertical bonus + stage score + document count factor
-    const baseScore = 0.3;
     const stageScore = stageScores[startup.stage] || 0;
-    const docsScore = Math.min(documents.length / 20, 0.1);
     
-    // Calculate final score (0-1)
-    const alignmentScore = baseScore + verticalBonus + stageScore + docsScore;
+    // Factor por cantidad de documentos (máximo 10%)
+    const docsScore = Math.min(documents.length / 15, 0.1);
     
-    // Update the startup with the calculated alignment score
+    // Complementamos el puntaje con los factores tradicionales
+    alignmentScore += verticalScore + stageScore + docsScore;
+    
+    // Normalizamos el puntaje entre 0 y 1
+    alignmentScore = Math.min(Math.max(alignmentScore, 0), 1);
+    
+    // Actualizamos el startup con el puntaje calculado
     await storage.updateStartup(startupId, { alignmentScore });
     
     return alignmentScore;
   } catch (error) {
-    console.error("Error analyzing startup alignment:", error);
-    throw new Error("Failed to analyze startup alignment. Please try again later.");
+    console.error("Error al analizar alineamiento del startup:", error);
+    throw new Error("No se pudo analizar el alineamiento del startup con la tesis de inversión.");
   }
 }
 
