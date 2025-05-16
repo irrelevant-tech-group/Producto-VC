@@ -1,42 +1,61 @@
 import { v4 as uuidv4 } from 'uuid';
 import { storage } from '../server/storage';
 
-const seedStartupId = uuidv4();
+// Usamos un ID fijo para garantizar que podamos actualizar los mismos objetos
+const seedStartupId = '5b2154f2-aaa3-481b-987e-f7fe2051bda4';
 
 async function seedDatabase() {
   try {
     console.log('Iniciando la carga de datos de prueba...');
     
-    // 1. Crear un usuario
-    const user = await storage.createUser({
-      username: "davidrodriguez",
-      password: "password123",
-      name: "David Rodriguez",
-      email: "david.rodriguez@example.com",
-      position: "Investment Analyst",
-    });
+    // 1. Obtener o crear el usuario
+    let user = await storage.getUserByUsername("davidrodriguez");
     
-    console.log(`Usuario creado: ${user.name} (ID: ${user.id})`);
+    if (!user) {
+      user = await storage.createUser({
+        username: "davidrodriguez",
+        password: "password123",
+        name: "David Rodriguez",
+        email: "david.rodriguez@example.com",
+        position: "Investment Analyst",
+      });
+      console.log(`Usuario creado: ${user.name} (ID: ${user.id})`);
+    } else {
+      console.log(`Usuario existente: ${user.name} (ID: ${user.id})`);
+    }
     
-    // 2. Crear un startup
-    const startup = await storage.createStartup({
-      id: seedStartupId,
-      name: "TechVision AI",
-      description: "Plataforma de análisis de imágenes usando inteligencia artificial para el sector retail",
-      vertical: "ai",
-      stage: "seed",
-      location: "Ciudad de México, México",
-      foundedDate: new Date("2022-03-15").toISOString(),
-      amountSought: 500000,
-      currency: "USD",
-      website: "https://techvision-ai.com",
-      status: "active",
-      alignmentScore: 85,
-    });
+    // 2. Verificar si el startup existe
+    let startup = await storage.getStartup(seedStartupId);
     
-    console.log(`Startup creado: ${startup.name} (${startup.id})`);
+    if (!startup) {
+      startup = await storage.createStartup({
+        id: seedStartupId,
+        name: "TechVision AI",
+        description: "Plataforma de análisis de imágenes usando inteligencia artificial para el sector retail",
+        vertical: "ai",
+        stage: "seed",
+        location: "Ciudad de México, México",
+        foundedDate: new Date("2022-03-15").toISOString(),
+        amountSought: 500000,
+        currency: "USD",
+        website: "https://techvision-ai.com",
+        status: "active",
+        alignmentScore: 85,
+      });
+      console.log(`Startup creado: ${startup.name} (${startup.id})`);
+    } else {
+      console.log(`Startup existente: ${startup.name} (${startup.id})`);
+    }
     
-    // 2. Crear documentos para el startup
+    // 3. Cargar documentos para el startup
+    console.log("Creando documentos con contenido para el asistente IA...");
+    
+    // Definimos IDs fijos para documentos
+    const pitchDeckId = uuidv4();
+    const financialsId = uuidv4();
+    const marketId = uuidv4();
+    
+    // Crear el pitch deck
     const pitchDeckDoc = await storage.createDocument({
       id: uuidv4(),
       startupId: startup.id,
