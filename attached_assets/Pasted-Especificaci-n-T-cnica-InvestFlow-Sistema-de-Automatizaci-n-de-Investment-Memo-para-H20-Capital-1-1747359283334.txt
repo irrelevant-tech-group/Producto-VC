@@ -1,0 +1,536 @@
+Especificación Técnica: InvestFlow
+Sistema de Automatización de Investment Memo para H20 Capital
+1. Visión General del Producto
+InvestFlow es una plataforma especializada para fondos de capital de riesgo que automatiza el proceso de due diligence y generación de Investment Memos. El sistema utiliza procesamiento de lenguaje natural, almacenamiento vectorial y generación asistida por IA para transformar información no estructurada de múltiples fuentes en documentos estructurados alineados con la tesis de inversión del fondo.
+1.1 Problema a Resolver
+Los analistas e investment managers de H20 Capital dedican un tiempo excesivo (estimado en 15-20 horas por startup) para:
+Recopilar información de múltiples fuentes (emails, documentos, reuniones)
+Organizar y analizar manualmente datos dispersos
+Redactar Investment Memos (~40 páginas) para presentación al Board
+Asegurar alineación con la tesis de inversión del fondo
+1.2 Solución Propuesta
+InvestFlow automatiza este proceso mediante:
+Ingesta y procesamiento de datos no estructurados
+Almacenamiento vectorial para recuperación contextual
+Generación asistida por IA de Investment Memos
+Análisis automático de alineación con tesis de inversión
+2. Definición del MVP
+2.1 Alcance del MVP
+Para la primera fase, el MVP se centrará en tres capacidades fundamentales:
+Ingesta y procesamiento de datos desde múltiples fuentes
+Consulta y recuperación contextual de información
+Generación automatizada de Investment Memos
+2.2 Funcionalidades Excluidas del MVP
+Las siguientes funcionalidades se considerarán para fases posteriores:
+Integración con plataformas CRM existentes
+Análisis predictivo de éxito de startups
+Módulo de seguimiento post-inversión
+App móvil (inicialmente solo versión web)
+3. Arquitectura Técnica
+3.1 Stack Tecnológico
+Backend:
+Framework principal: Python con FastAPI
+Base de datos relacional: PostgreSQL (en AWS RDS)
+Base de datos vectorial: pgvector (extensión de PostgreSQL)
+Almacenamiento: AWS S3
+Autenticación: Auth0
+Frontend:
+Framework: React con TypeScript
+Diseño: Tailwind CSS + Shadcn UI
+Estado y Fetching: React Query
+Deployment: AWS Amplify
+Servicios de IA:
+Procesamiento de lenguaje: spaCy, NLTK
+Framework de IA: LangChain + LlamaIndex
+Generación de embeddings: OpenAI API (text-embedding-3-large) → migración posterior a Chonkie.ai
+Generación de texto: OpenAI API (GPT-4 Turbo)
+Estructuración de datos: LangChain con OpenAI Functions
+DevOps:
+CI/CD: GitHub Actions
+Contenedores: Docker + AWS ECS/Fargate
+Monitoreo: Datadog
+Entornos: Development, Staging, Production
+3.2 Diagrama de Arquitectura
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│                 │     │                 │     │                 │
+│  Frontend (UI)  │◄───►│ Backend (API)   │◄───►│ PostgreSQL +    │
+│  React          │     │ FastAPI         │     │ pgvector        │
+│                 │     │                 │     │                 │
+└─────────────────┘     └────────┬────────┘     └─────────────────┘
+                                 │
+┌────────────────────────────────▼───────────────────────────────┐
+│                                                                │
+│                          SERVICIOS                             │
+│                                                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
+│  │ Document    │  │ Vector      │  │ Memo        │            │
+│  │ Processor   │  │ Store       │  │ Generator   │            │
+│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│                                                                │
+└────────────────────────────┬───────────────────────────────────┘
+                             │
+                             ▼
+                   ┌─────────────────────┐
+                   │                     │
+                   │     OpenAI API      │
+                   │     Chonkie.ai      │
+                   │                     │
+                   └─────────────────────┘
+4. Módulos y Funcionalidades Detalladas
+4.1 Módulo de Ingesta y Procesamiento
+4.1.1 Fuentes de Datos Soportadas
+Documentos: PDF, DOCX, PPTX, CSV, XLS/XLSX
+Comunicaciones: Correos electrónicos (API de Gmail)
+Notas: Texto plano, Markdown
+Formulario web: Para ingreso manual de datos
+4.1.2 Pipeline de Procesamiento
+Extracción de texto:
+PDF: PyPDF2, pdfminer.six
+DOCX: python-docx
+PPTX: python-pptx
+Excel: pandas, openpyxl
+OCR: pytesseract (para documentos escaneados)
+Preprocesamiento:
+Limpieza de texto: NLTK, spaCy
+Normalización: Unicodedata, regex
+División en chunks semánticos: LlamaIndex TextSplitter
+Enriquecimiento:
+Detección de entidades: spaCy NER
+Extracción de métricas: regex personalizado + GPT-4
+Clasificación por categorías: scikit-learn o transformers
+Generación de embeddings:
+Creación de vectores: OpenAI Embeddings API
+Almacenamiento: pgvector sobre PostgreSQL
+4.1.3 Especificaciones Técnicas
+Tamaño máximo de archivo: 25MB
+Formatos soportados: .pdf, .docx, .pptx, .xlsx, .csv, .txt, .md
+Dimensiones de embedding: 1536 (OpenAI)
+Rendimiento: Procesamiento en background con Celery + Redis
+4.2 Módulo de Gestión de Startups
+4.2.1 Creación de Prospecto
+Formulario con campos obligatorios:
+Nombre de la startup
+Sector/Vertical (dropdown con opciones alineadas a H20)
+Etapa (pre-seed, seed)
+Ubicación (países LATAM + US)
+Monto buscado
+Contacto principal
+Fecha primer contacto
+4.2.2 Dashboard de Prospecto
+Vista consolidada con:
+Información básica
+Documentos procesados
+Timeline de interacciones
+Score de alineación con tesis
+Progreso de due diligence
+Acciones rápidas
+4.2.3 Gestión de Due Diligence
+Checklist configurable de documentos/información requerida
+Asignación de estados por categoría (recibido, revisado, aprobado)
+Notificaciones para elementos pendientes
+Comentarios por sección
+4.3 Módulo de Consulta y Análisis
+4.3.1 Consulta Contextual
+Interfaz de chat para preguntas en lenguaje natural
+Búsqueda vectorial utilizando LlamaIndex o LangChain
+Citación automática de fuentes en respuestas
+4.3.2 Análisis de Alineación con Tesis
+Evaluación automática basada en criterios de H20 Capital:
+Sector (match con verticales objetivo)
+Potencial de mercado LATAM/US
+Tecnología y diferenciación
+Equipo fundador
+Métricas de tracción
+Modelo de negocio
+4.3.3 Generación de Insights
+Identificación automática de:
+Fortalezas clave
+Riesgos potenciales
+Oportunidades de crecimiento
+Comparativas con portfolio existente
+4.4 Módulo de Generación de Investment Memo
+4.4.1 Estructura Configurable
+Plantilla base adaptada a H20 Capital con secciones:
+Resumen Ejecutivo
+Tesis de Inversión
+Equipo
+Producto/Tecnología
+Mercado y Competencia
+Modelo de Negocio
+Métricas y Tracción
+Finanzas
+Términos Propuestos
+Riesgos y Mitigación
+Conclusión y Recomendación
+4.4.2 Proceso de Generación
+Selección de template
+Configuración de parámetros (longitud, enfoque)
+Generación por secciones con LangChain y GPT-4
+Inclusión automática de visualizaciones con matplotlib/seaborn
+Vista previa y edición colaborativa (docx o Google Docs API)
+4.4.3 Exportación
+Formatos: PDF, DOCX, Google Docs
+Generación automática de slides para presentación (python-pptx)
+Plantillas corporativas personalizables
+5. Modelo de Datos
+5.1 Entidades Principales
+5.1.1 Startup
+python
+class Startup(Base):
+    __tablename__ = "startups"
+    
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    vertical = Column(Enum("fintech", "saas", "marketplace", "ecommerce", "ai", "other"))
+    stage = Column(Enum("pre-seed", "seed", "series-a"))
+    location = Column(String)
+    amount_sought = Column(Float)
+    currency = Column(Enum("USD", "MXN", "COP", "BRL"))
+    primary_contact = Column(JSONB)  # {name, email, position}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(Enum("active", "declined", "invested", "archived"))
+    alignment_score = Column(Float)
+    last_interaction = Column(DateTime)
+    
+    # Relationships
+    documents = relationship("Document", back_populates="startup")
+    memos = relationship("InvestmentMemo", back_populates="startup")
+5.1.2 Document
+python
+class Document(Base):
+    __tablename__ = "documents"
+    
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    startup_id = Column(UUID, ForeignKey("startups.id"))
+    name = Column(String, nullable=False)
+    type = Column(Enum("pitch-deck", "financials", "legal", "tech", "market", "other"))
+    file_url = Column(String)
+    file_type = Column(String)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_by = Column(UUID, ForeignKey("users.id"))
+    processed = Column(Boolean, default=False)
+    processing_status = Column(Enum("pending", "processing", "completed", "failed"))
+    metadata = Column(JSONB)
+    
+    # Relationships
+    startup = relationship("Startup", back_populates="documents")
+    chunks = relationship("Chunk", back_populates="document")
+5.1.3 Chunk
+python
+class Chunk(Base):
+    __tablename__ = "chunks"
+    
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID, ForeignKey("documents.id"))
+    startup_id = Column(UUID, ForeignKey("startups.id"))
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(1536))  # pgvector column
+    metadata = Column(JSONB)  # {source, page, category, entities, metrics, timestamp}
+    
+    # Relationships
+    document = relationship("Document", back_populates="chunks")
+    startup = relationship("Startup")
+5.1.4 InvestmentMemo
+python
+class InvestmentMemo(Base):
+    __tablename__ = "investment_memos"
+    
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    startup_id = Column(UUID, ForeignKey("startups.id"))
+    version = Column(Integer, default=1)
+    status = Column(Enum("draft", "review", "final"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_by = Column(UUID, ForeignKey("users.id"))
+    sections = Column(JSONB)  # Array of {title, content, sources, lastEdited}
+    export_urls = Column(JSONB)  # {pdf, docx, slides}
+    
+    # Relationships
+    startup = relationship("Startup", back_populates="memos")
+5.2 Relaciones
+Una Startup tiene muchos Documents
+Un Document tiene muchos Chunks
+Una Startup tiene muchos InvestmentMemos
+Un User puede crear/editar múltiples entidades
+6. Experiencia de Usuario (UX)
+6.1 Flujo Principal
+Login: Autenticación mediante Auth0
+Dashboard principal: Lista de startups en evaluación con KPIs
+Creación de nuevo prospecto: Formulario de ingreso inicial
+Ingesta de documentos: Upload o conexión a fuentes (Gmail, Drive)
+Dashboard de prospecto: Vista consolidada de toda la información
+Consulta y análisis: Interacción mediante preguntas naturales
+Generación de Investment Memo: Selección de template y configuración
+Edición colaborativa: Revisión y modificación del memo generado
+Exportación: Descarga en formato final para presentación
+7. Requisitos de Implementación
+7.1 Componentes Críticos
+Los siguientes componentes son fundamentales para el funcionamiento del MVP:
+Sistema de ingesta y procesamiento:
+Capacidad para procesar múltiples formatos (PDF, DOCX, XLSX, etc.)
+Pipeline de extracción de texto a chunks semánticos
+Generación y almacenamiento de embeddings
+Sistema de consulta vectorial:
+Búsqueda semántica eficiente (pgvector)
+Mecanismo de ranking y relevancia
+Sistema de citación y atribución de fuentes
+Motor de generación de documentos:
+Templates predefinidos para Investment Memos
+Recuperación contextual para generación
+Exportación a múltiples formatos
+Interfaz de usuario:
+Dashboard centralizado de startups
+Vista detallada por startup con metrics
+Interfaz conversacional para consultas
+Editor colaborativo para memos
+7.3 Requisitos de Infraestructura
+7.3.1 Cloud y Hosting
+AWS:
+EC2 o ECS para servicios containerizados
+RDS PostgreSQL para base de datos
+S3 para almacenamiento de documentos
+CloudFront para distribución de assets estáticos
+Amplify:
+Hosting para aplicación React
+CI/CD integrado
+7.3.2 Procesamiento y AI
+OpenAI API:
+Modelo GPT-4 Turbo para generación de contenido
+Embeddings (text-embedding-3-large) para vectorización
+Estimación de uso:
+Embeddings: ~5M tokens/mes
+Generación: ~2M tokens/mes
+7.3.3 Almacenamiento
+Database:
+PostgreSQL + pgvector en AWS RDS
+Requisitos iniciales: 5GB para datos estructurados
+Crecimiento estimado: 500MB/mes
+Blob Storage:
+AWS S3
+Requisitos iniciales: 25GB para documentos
+Crecimiento estimado: 2-3GB/mes
+7.3.4 Requisitos de Red
+Ancho de banda estimado: 50GB/mes
+Conexiones API externas:
+OpenAI API
+Gmail API (opcional)
+Google Drive API (opcional)
+7.3.5 Entornos
+Desarrollo: Para trabajo de implementación
+Producción: Entorno para usuarios finales
+8. Integraciones Técnicas
+8.1 APIs Externas
+OpenAI API:
+Endpoints utilizados:
+/v1/chat/completions - Generación de texto
+/v1/embeddings - Creación de embeddings
+Autenticación via API Key
+Implementación de retry logic y manejo de rate limits
+Gmail API (opcional para fase 2):
+Scope requerido: https://www.googleapis.com/auth/gmail.readonly
+Autenticación OAuth 2.0
+Endpoints para listar y recuperar correos
+Google Drive API (opcional para fase 2):
+Scope requerido: https://www.googleapis.com/auth/drive.readonly
+Acceso a documentos compartidos y metadata
+8.2 Bibliotecas y Dependencias Clave
+8.2.1 Backend
+fastapi: Framework web de alto rendimiento
+sqlalchemy: ORM para interacción con base de datos
+langchain: Framework para operaciones con LLMs
+llamaindex: Indexación y recuperación de documentos
+pypdf2/pdfminer.six: Extracción de texto de PDFs
+python-docx: Procesamiento de documentos Word
+python-pptx: Procesamiento de presentaciones
+pandas/openpyxl: Manejo de hojas de cálculo
+spacy: Procesamiento de lenguaje natural
+sqlalchemy-utils: Extensiones para SQLAlchemy (incluyendo Vector)
+pgvector: Soporte para búsquedas vectoriales en PostgreSQL
+celery: Procesamiento asíncrono de tareas
+boto3: Cliente AWS para Python
+8.2.2 Frontend
+react: Biblioteca UI
+typescript: Tipado estático
+react-query: Gestión de estado y data fetching
+shadcn/ui: Componentes de UI
+recharts: Visualización de datos
+react-hook-form: Manejo de formularios
+dnd-kit: Drag and drop para UI
+react-pdf: Visualización de PDFs
+slate.js: Editor de texto rico
+8.3 Requerimientos de Integración Interna
+Sistema de webhooks para notificaciones de eventos:
+Documento procesado
+Nuevo insight detectado
+Investment memo generado
+API RESTful para uso por otros servicios:
+Endpoints CRUD para entidades principales
+Autenticación via JWT
+Documentación con FastAPI Swagger UI
+Exportador de datos para respaldos y análisis:
+Formato estructurado (JSON)
+Opción de exportación incremental
+Programación de exportaciones automáticas
+9. Consideraciones Técnicas Adicionales
+9.1 Seguridad
+Autenticación:
+Sistema basado en JWT con Auth0
+Rotación de tokens
+Soporte para MFA (opcional)
+Autorización:
+Modelo RBAC (Role-Based Access Control)
+Roles predefinidos: Admin, Investment Manager, Analyst, Readonly
+Permisos granulares por acción y recurso
+Protección de datos:
+Cifrado en reposo para datos sensibles (AES-256)
+TLS/SSL para todas las comunicaciones
+Sanitización de inputs para prevenir inyecciones
+Auditoría:
+Logging detallado de acciones críticas
+Registro inmutable de cambios en documentos sensibles
+Alertas automatizadas para comportamientos anómalos
+9.2 Rendimiento y Escalabilidad
+Optimización de consultas vectoriales:
+Índices HNSW en pgvector
+Estrategias de filtrado previo para reducir espacio de búsqueda
+Paralelización de consultas complejas
+Procesamiento asíncrono:
+Celery + Redis para tareas en background
+Colas prioritarias para tareas críticas
+Notificaciones en tiempo real de finalización
+Caching inteligente:
+Redis para caché de embeddings frecuentes
+Resultados de consultas comunes
+Invalidación selectiva por cambios en datos fuente
+Arquitectura distribuida:
+Separación de servicios por dominio funcional
+Stateless para componentes críticos
+Despliegue en múltiples zonas (opcional)
+9.3 Estrategia de Datos
+Indexación eficiente:
+Índices específicos para patrones de consulta frecuentes
+Particionamiento por startup_id para grandes volúmenes
+Estrategia de chunks semánticos vs. tamaño fijo
+Gestión de datos:
+Política de retención configurable
+Archivado automático de datos históricos
+Exportación segura para análisis externo
+Calidad de datos:
+Validación en ingesta para detectar problemas
+Feedback loop para mejorar procesamiento
+Detección de duplicados y contenido redundante
+10. Especificaciones Detalladas de Funcionalidades
+10.1 Módulo de Ingesta y Procesamiento
+10.1.1 Gestión de Documentos
+Tipos de documentos soportados:
+Pitch Decks (PDF, PPTX)
+Financieros (XLSX, CSV)
+Legales (PDF, DOCX)
+Comunicaciones (TXT, correos)
+Notas de reuniones (Markdown, TXT)
+Interfaz de carga:
+Drag & drop múltiple
+Integración con Google Drive
+Upload por URL
+Bulk upload con metadata
+Procesamiento de documentos:
+OCR para documentos escaneados (pytesseract)
+Extracción de tablas con preservación de estructura (camelot-py)
+Reconocimiento de gráficos y elementos visuales clave
+Detección de idioma y traducción si es necesario (langdetect, googletrans)
+10.1.2 Análisis y Estructuración
+Extracción de entidades clave:
+Personas (fundadores, equipo, advisors)
+Organizaciones (competidores, partners)
+Métricas financieras (ARR, MRR, Burn rate)
+Métricas de tracción (usuarios, GMV, conversión)
+Valoraciones y términos de inversión
+Clasificación automática:
+Categorización por relevancia para due diligence
+Etiquetado por sección de Investment Memo
+Asignación de confianza por extracción
+Vectorización inteligente:
+Estrategias de chunking semántico adaptativo
+Metadata enriquecida para cada chunk
+Almacenamiento eficiente en pgvector
+10.2 Módulo de Gestión de Startups
+10.2.1 Perfil de Startup
+Información básica:
+Datos de la empresa (nombre, fecha fundación, ubicación)
+Equipo fundador con backgrounds
+Links a sitios y redes sociales
+Ronda actual y stack de captable
+Dashboard personalizado:
+KPIs principales configurables
+Timeline de interacciones
+Estado de due diligence
+Score de alineación con tesis
+Seguimiento de comunicaciones:
+Registro de reuniones con notas
+Historial de correos (opcional con Gmail API)
+Próximos pasos y pendientes
+Asignación de tareas por startup
+10.2.2 Due Diligence
+Checklist configurable:
+Templates por vertical (Fintech, SaaS, Marketplace)
+Estados por ítem (pendiente, en proceso, completado)
+Asignación de responsables
+Fechas límite y recordatorios
+Visualización de progreso:
+Dashboard con % completado por área
+Áreas de riesgo identificadas
+Documentos faltantes críticos
+Comparativa con benchmarks internos
+10.3 Módulo de Consulta y Análisis
+10.3.1 Interfaz de Consulta
+Chat conversacional:
+Consultas en lenguaje natural
+Soporte para español e inglés
+Historial de preguntas frecuentes
+Templates de preguntas por vertical
+Respuestas estructuradas:
+Información con citas a fuentes
+Visualización de datos cuando aplique
+Opciones de profundización
+Exportación de respuestas a memo
+10.3.2 Análisis de Alineación
+Evaluación por criterios H20:
+Score por categoría (0-100)
+Justificación detallada por puntuación
+Comparativa con otras startups
+Recomendaciones de áreas a profundizar
+Identificación automática:
+Banderas rojas (red flags)
+Oportunidades destacadas
+Ventajas competitivas
+Inconsistencias en información
+10.4 Módulo de Generación de Investment Memo
+10.4.1 Personalización
+Templates configurables:
+Estructura base H20 Capital
+Variantes por vertical
+Personalización de secciones
+Ajuste de longitud y profundidad
+Estilos y branding:
+Aplicación de estilos corporativos
+Inclusión de logos y marcas
+Formatos profesionales predefinidos
+Elementos visuales consistentes
+10.4.2 Generación y Edición
+Proceso de generación:
+Generación por secciones con LangChain + OpenAI
+Preview en tiempo real
+Control de fuentes utilizadas
+Regeneración selectiva de secciones
+Editor colaborativo:
+Edición en tiempo real
+Control de versiones
+Comentarios y sugerencias
+Historial de cambios
+10.4.3 Exportación
+Formatos soportados:
+PDF de alta calidad (reportlab, WeasyPrint)
+DOCX editable (python-docx)
+Google Docs (API)
+Presentación para Board (python-pptx)
+
