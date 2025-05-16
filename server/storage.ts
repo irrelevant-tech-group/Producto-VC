@@ -123,8 +123,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(documents)
-      .where(eq(documents.startupId, startupId))
-      .orderBy(desc(documents.createdAt));
+      .where(eq(documents.startupId, startupId));
   }
 
   async createDocument(insertDocument: InsertDocument): Promise<Document> {
