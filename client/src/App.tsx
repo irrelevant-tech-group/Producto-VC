@@ -23,8 +23,8 @@ function Router() {
       <Route path="/startups" component={StartupsList} />
       <Route path="/startups/new" component={StartupNew} />
       <Route path="/startups/:id" component={StartupDetail} />
-      <Route path="/documents" component={DocumentsList} />
       <Route path="/documents/upload" component={DocumentUpload} />
+      <Route path="/documents" component={DocumentsList} />
       <Route path="/memos" component={MemosList} />
       <Route path="/memos/:id" component={MemoDetail} />
       <Route path="/ai-assistant" component={AiAssistant} />
