@@ -148,30 +148,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchChunks(query: string, startupId?: string, limit = 5): Promise<Chunk[]> {
-    let queryBuilder = db.select().from(chunks);
-    
-    // Add simple text-based search
-    if (query) {
-      queryBuilder = queryBuilder.where(
-        sql`${chunks.content} ILIKE ${`%${query}%`}`
-      );
+    try {
+      // Validar que startupId es un UUID válido si está presente
+      const isValidUUID = (id: string) => {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      };
+      
+      // Si no hay consulta, devolver array vacío
+      if (!query || query.trim() === '') {
+        return [];
+      }
+      
+      // Realizar búsqueda básica en el contenido
+      let results;
+      
+      if (startupId && isValidUUID(startupId)) {
+        // Búsqueda filtrada por startup
+        results = await db.execute(
+          sql`SELECT * FROM chunks 
+              WHERE content ILIKE ${'%' + query + '%'} 
+              AND document_id IN (
+                SELECT id FROM documents WHERE startup_id = ${startupId}
+              )
+              LIMIT ${limit}`
+        );
+      } else {
+        // Búsqueda en todos los documentos
+        results = await db.execute(
+          sql`SELECT * FROM chunks 
+              WHERE content ILIKE ${'%' + query + '%'} 
+              LIMIT ${limit}`
+        );
+      }
+      
+      return results.rows as Chunk[];
+    } catch (error) {
+      console.error("Error searching chunks:", error);
+      return [];
     }
-    
-    // Filter by startup if provided
-    if (startupId) {
-      queryBuilder = queryBuilder.where(
-        and(
-          sql`${chunks.documentId} IN (
-            SELECT id FROM ${documents} WHERE ${documents.startupId} = ${startupId}
-          )`
-        )
-      );
-    }
-    
-    // Limit results
-    queryBuilder = queryBuilder.limit(limit);
-    
-    return await queryBuilder;
   }
 
   // Memo operations
