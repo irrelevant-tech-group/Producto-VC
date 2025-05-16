@@ -153,29 +153,73 @@ export class DatabaseStorage implements IStorage {
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       };
       
-      // Si no hay consulta, devolver array vacío
+      // Si no hay consulta, simplemente devolveremos los últimos chunks para ese startup
       if (!query || query.trim() === '') {
+        if (startupId && isValidUUID(startupId)) {
+          const results = await db.execute(
+            sql`SELECT * FROM chunks 
+                WHERE startup_id = ${startupId}
+                LIMIT ${limit}`
+          );
+          return results.rows as Chunk[];
+        }
         return [];
       }
+      
+      // Extraer palabras clave de la consulta (palabras de 3+ caracteres)
+      const keywords = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length >= 3)
+        .map(word => word.replace(/[^\w]/g, ''));
+      
+      // Si no hay palabras clave válidas, devolver chunks recientes
+      if (keywords.length === 0) {
+        if (startupId && isValidUUID(startupId)) {
+          const results = await db.execute(
+            sql`SELECT * FROM chunks 
+                WHERE startup_id = ${startupId}
+                LIMIT ${limit}`
+          );
+          return results.rows as Chunk[];
+        }
+        return [];
+      }
+      
+      // Crear condiciones de búsqueda para cada palabra clave
+      const keywordConditions = keywords.map(keyword => {
+        return `content ILIKE '%${keyword}%'`;
+      }).join(' OR ');
       
       // Realizar búsqueda básica en el contenido
       let results;
       
       if (startupId && isValidUUID(startupId)) {
-        // Búsqueda filtrada por startup
-        results = await db.execute(
-          sql`SELECT * FROM chunks 
-              WHERE content ILIKE ${'%' + query + '%'} 
-              AND document_id IN (
-                SELECT id FROM documents WHERE startup_id = ${startupId}
-              )
-              LIMIT ${limit}`
-        );
+        // Búsqueda filtrada por startup y palabras clave
+        const sqlQuery = `
+          SELECT * FROM chunks 
+          WHERE (${keywordConditions})
+          AND startup_id = '${startupId}'
+          LIMIT ${limit}
+        `;
+        
+        results = await db.execute(sql.raw(sqlQuery));
       } else {
-        // Búsqueda en todos los documentos
+        // Búsqueda en todos los documentos por palabras clave
+        const sqlQuery = `
+          SELECT * FROM chunks 
+          WHERE (${keywordConditions})
+          LIMIT ${limit}
+        `;
+        
+        results = await db.execute(sql.raw(sqlQuery));
+      }
+      
+      // Si no hay resultados con palabras clave, devolver algunos chunks del startup
+      if (results.rows.length === 0 && startupId && isValidUUID(startupId)) {
         results = await db.execute(
           sql`SELECT * FROM chunks 
-              WHERE content ILIKE ${'%' + query + '%'} 
+              WHERE startup_id = ${startupId}
               LIMIT ${limit}`
         );
       }
@@ -183,6 +227,22 @@ export class DatabaseStorage implements IStorage {
       return results.rows as Chunk[];
     } catch (error) {
       console.error("Error searching chunks:", error);
+      
+      // En caso de error, intentar devolver algunos chunks para el startup
+      if (startupId) {
+        try {
+          const results = await db.execute(
+            sql`SELECT * FROM chunks 
+                WHERE startup_id = ${startupId}
+                LIMIT ${limit}`
+          );
+          return results.rows as Chunk[];
+        } catch (err) {
+          console.error("Error in fallback chunk search:", err);
+          return [];
+        }
+      }
+      
       return [];
     }
   }
