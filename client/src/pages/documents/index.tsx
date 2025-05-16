@@ -59,7 +59,7 @@ export default function DocumentsList() {
         <div className="mt-4 sm:mt-0">
           <Button 
             className="flex items-center"
-            onClick={() => navigate("/startups")}
+            onClick={() => navigate(`/documents/upload${selectedStartupId ? `?startupId=${selectedStartupId}` : ''}`)}
           >
             <Upload className="h-5 w-5 mr-2" />
             Upload Document

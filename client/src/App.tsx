@@ -11,6 +11,7 @@ import StartupsList from "@/pages/startups/index";
 import StartupNew from "@/pages/startups/new";
 import StartupDetail from "@/pages/startups/[id]";
 import DocumentsList from "@/pages/documents/index";
+import DocumentUpload from "@/pages/documents/upload";
 import MemosList from "@/pages/memos/index";
 import MemoDetail from "@/pages/memos/[id]";
 import AiAssistant from "@/pages/ai-assistant";
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/startups/new" component={StartupNew} />
       <Route path="/startups/:id" component={StartupDetail} />
       <Route path="/documents" component={DocumentsList} />
+      <Route path="/documents/upload" component={DocumentUpload} />
       <Route path="/memos" component={MemosList} />
       <Route path="/memos/:id" component={MemoDetail} />
       <Route path="/ai-assistant" component={AiAssistant} />

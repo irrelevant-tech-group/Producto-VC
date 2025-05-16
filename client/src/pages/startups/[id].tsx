@@ -345,7 +345,7 @@ export default function StartupDetail() {
                 <CardTitle className="text-lg">Documents</CardTitle>
                 <CardDescription>All documents uploaded for this startup</CardDescription>
               </div>
-              <Button onClick={() => navigate(`/documents?startupId=${id}`)}>
+              <Button onClick={() => navigate(`/documents/upload?startupId=${id}`)}>
                 <FileUp className="h-4 w-4 mr-2" />
                 Upload
               </Button>
