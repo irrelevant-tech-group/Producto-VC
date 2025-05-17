@@ -99,7 +99,7 @@ export const chunks = pgTable("chunks", {
   documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: 'cascade' }),
   startupId: uuid("startup_id").notNull().references(() => startups.id, { onDelete: 'cascade' }),
   content: text("content").notNull(),
-  embedding: text("embedding").type("vector(1536)"), // Modificado para usar type directamente
+  embedding: jsonb("embedding"),// Modificado para usar type directamente
   similarityScore: real("similarity_score"), // Mantener para compatibilidad
   metadata: jsonb("metadata"), // { source, page, category, entities, metrics, timestamp }
 });

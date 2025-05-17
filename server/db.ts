@@ -8,9 +8,9 @@ import * as schema from "@shared/schema";
 neonConfig.webSocketConstructor = ws;
 
 // Configuraciones ajustadas para mejor compatibilidad
-neonConfig.useSecureWebSocket = false; // Cambiar a false para evitar problemas SSL
-neonConfig.pipelineConnect = 'auto'; // Usar auto en lugar de false
-neonConfig.poolQueryTimeout = 120000; // Aumentar timeout a 120 segundos
+neonConfig.useSecureWebSocket = true;      // FORZAR siempre wss:// en lugar de ws://
+neonConfig.pipelineConnect     = 'auto';  // Usar 'auto' para detección de pipeline
+neonConfig.poolQueryTimeout    = 120000;  // Aumentar timeout de consulta a 120 segundos
 
 // Eliminar wsProxyUrl que puede causar problemas
 // neonConfig.wsProxyUrl = 'wss://proxy.neon.tech';
@@ -25,12 +25,12 @@ console.log("Attempting to connect to database...");
 
 // Opciones de pool ajustadas
 const poolOptions = {
-  connectionString: process.env.DATABASE_URL,
-  max: 5, // Reducir máximo de conexiones para evitar sobrecarga
-  idleTimeoutMillis: 60000, // Aumentar timeout de inactividad
-  connectionTimeoutMillis: 30000, // Aumentar timeout de conexión
+  connectionString        : process.env.DATABASE_URL,
+  max                     : 5,        // Reducir máximo de conexiones para evitar sobrecarga
+  idleTimeoutMillis       : 60000,    // Aumentar timeout de inactividad
+  connectionTimeoutMillis : 30000,    // Aumentar timeout de conexión
   ssl: {
-    rejectUnauthorized: false // Cambiar a false si hay problemas con certificados SSL
+    rejectUnauthorized: false         // Permitir certificados auto-firmados si es necesario
   },
 };
 
@@ -69,14 +69,13 @@ export async function createHnswIndexIfNeeded() {
         ) as exists
       `);
       
-      // Si la tabla chunks no existe, crear los índices no tiene sentido
+      // Si la tabla chunks no existe, no creamos índices
       if (!tableExists[0].exists) {
         console.log('Table chunks does not exist yet. Skip creating indices.');
         return;
       }
       
       console.log('Creating HNSW index on chunks.embedding...');
-      // Crea un índice HNSW para búsquedas eficientes
       await client.query(`
         CREATE INDEX IF NOT EXISTS chunks_embedding_idx 
         ON chunks USING hnsw(embedding vector_l2_ops) 
@@ -99,10 +98,10 @@ export async function createHnswIndexIfNeeded() {
       `);
       
       console.log('Vector extension and indices setup successful');
-      break; // Si llegamos aquí, todo funcionó y podemos salir del bucle
+      break; // Salir si todo salió bien
       
     } catch (error) {
-      console.error(`Error setting up vector extension or indices (attempt ${4-retries}/3):`, error);
+      console.error(`Error setting up vector extension or indices (attempt ${4 - retries}/3):`, error);
       retries--;
       
       if (retries === 0) {
@@ -138,7 +137,7 @@ export async function testDatabaseConnection() {
       console.log(`Database connection successful. Server time: ${rows[0].time}`);
       return true;
     } catch (error) {
-      console.error(`Database connection test failed (attempt ${4-retries}/3):`, error);
+      console.error(`Database connection test failed (attempt ${4 - retries}/3):`, error);
       retries--;
       
       if (retries === 0) {
