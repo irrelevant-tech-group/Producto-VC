@@ -110,11 +110,11 @@ export class DatabaseStorage implements IStorage {
       location: startup.location,
       amountSought: startup.amountSought,
       currency: startup.currency,
-      status: startup.status || 'pending', // Convert null to 'pending' to match type
+      status: startup.status || 'pending',
       alignmentScore: startup.alignmentScore,
-      documentsCount: 0, // Would be populated by a join or multiple queries in a real app
-      completionPercentage: 0, // Would be calculated based on due diligence data
-      lastUpdated: startup.createdAt?.toISOString() || new Date().toISOString(), // Ensure there's always a date
+      documentsCount: 0,
+      completionPercentage: 0,
+      lastUpdated: startup.createdAt?.toISOString() || new Date().toISOString(),
     }));
   }
 
@@ -154,18 +154,13 @@ export class DatabaseStorage implements IStorage {
   // Método actualizado para crear chunks con embedding
   async createChunkWithEmbedding(insertChunk: InsertChunk, text: string): Promise<Chunk> {
     try {
-      // Generar embedding para el texto
       const embedding = await generateEmbedding(text);
-      
-      // Crear chunk con el embedding generado
       const [chunk] = await db.insert(chunks)
         .values({ ...insertChunk, embedding })
         .returning();
-      
       return chunk;
     } catch (error) {
       console.error("Error al crear chunk con embedding:", error);
-      // Fallback: crear chunk sin embedding en caso de error
       return this.createChunk(insertChunk);
     }
   }
@@ -173,7 +168,6 @@ export class DatabaseStorage implements IStorage {
   // Búsqueda semántica usando pgvector
   async searchChunksByEmbedding(embedding: number[], startupId?: string, limit = 5): Promise<Chunk[]> {
     try {
-      // Validar uuid
       const isValidUUID = (id: string) => {
         return id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       };
@@ -182,12 +176,10 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Invalid startupId format");
       }
       
-      // Utilizar búsqueda aproximada con cosine_similarity
       let sqlQuery;
       let result;
       
       if (startupId) {
-        // Búsqueda filtrada por startup
         sqlQuery = `
           SELECT *, 1 - (embedding <=> $1) as similarity
           FROM chunks 
@@ -195,13 +187,8 @@ export class DatabaseStorage implements IStorage {
           ORDER BY similarity DESC
           LIMIT $3
         `;
-        
-        result = await db.execute(
-          sql.raw(sqlQuery),
-          [embedding, startupId, limit]
-        );
+        result = await db.execute(sql.raw(sqlQuery), [embedding, startupId, limit]);
       } else {
-        // Búsqueda global
         sqlQuery = `
           SELECT *, 1 - (embedding <=> $1) as similarity
           FROM chunks 
@@ -209,18 +196,12 @@ export class DatabaseStorage implements IStorage {
           ORDER BY similarity DESC
           LIMIT $2
         `;
-        
-        result = await db.execute(
-          sql.raw(sqlQuery),
-          [embedding, limit]
-        );
+        result = await db.execute(sql.raw(sqlQuery), [embedding, limit]);
       }
       
       return result.rows as Chunk[];
     } catch (error) {
       console.error("Error en búsqueda vectorial:", error);
-      
-      // Fallback a búsqueda de texto si hay error
       if (startupId) {
         return this.searchChunks("", startupId, limit);
       }
@@ -230,23 +211,19 @@ export class DatabaseStorage implements IStorage {
 
   async searchChunks(query: string, startupId?: string, limit = 5): Promise<Chunk[]> {
     try {
-      // Si hay una consulta, intentar usar búsqueda vectorial
       if (query && query.trim() !== '') {
         try {
           const queryEmbedding = await generateEmbedding(query);
           return await this.searchChunksByEmbedding(queryEmbedding, startupId, limit);
         } catch (embeddingError) {
           console.error("Error en búsqueda vectorial, fallback a búsqueda de texto:", embeddingError);
-          // Continuar con búsqueda de texto como fallback
         }
       }
       
-      // Validar que startupId es un UUID válido si está presente
       const isValidUUID = (id: string) => {
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       };
       
-      // Si no hay consulta, simplemente devolveremos los últimos chunks para ese startup
       if (!query || query.trim() === '') {
         if (startupId && isValidUUID(startupId)) {
           const results = await db.execute(
@@ -259,14 +236,12 @@ export class DatabaseStorage implements IStorage {
         return [];
       }
       
-      // Extraer palabras clave de la consulta (palabras de 3+ caracteres)
       const keywords = query
         .toLowerCase()
         .split(/\s+/)
         .filter(word => word.length >= 3)
         .map(word => word.replace(/[^\w]/g, ''));
       
-      // Si no hay palabras clave válidas, devolver chunks recientes
       if (keywords.length === 0) {
         if (startupId && isValidUUID(startupId)) {
           const results = await db.execute(
@@ -279,36 +254,29 @@ export class DatabaseStorage implements IStorage {
         return [];
       }
       
-      // Crear condiciones de búsqueda para cada palabra clave
       const keywordConditions = keywords.map(keyword => {
         return `content ILIKE '%${keyword}%'`;
       }).join(' OR ');
       
-      // Realizar búsqueda básica en el contenido
       let results;
       
       if (startupId && isValidUUID(startupId)) {
-        // Búsqueda filtrada por startup y palabras clave
         const sqlQuery = `
           SELECT * FROM chunks 
           WHERE (${keywordConditions})
           AND startup_id = '${startupId}'
           LIMIT ${limit}
         `;
-        
         results = await db.execute(sql.raw(sqlQuery));
       } else {
-        // Búsqueda en todos los documentos por palabras clave
         const sqlQuery = `
           SELECT * FROM chunks 
           WHERE (${keywordConditions})
           LIMIT ${limit}
         `;
-        
         results = await db.execute(sql.raw(sqlQuery));
       }
       
-      // Si no hay resultados con palabras clave, devolver algunos chunks del startup
       if (results.rows.length === 0 && startupId && isValidUUID(startupId)) {
         results = await db.execute(
           sql`SELECT * FROM chunks 
@@ -320,8 +288,6 @@ export class DatabaseStorage implements IStorage {
       return results.rows as Chunk[];
     } catch (error) {
       console.error("Error searching chunks:", error);
-      
-      // En caso de error, intentar devolver algunos chunks para el startup
       if (startupId) {
         try {
           const results = await db.execute(
@@ -335,7 +301,6 @@ export class DatabaseStorage implements IStorage {
           return [];
         }
       }
-      
       return [];
     }
   }
@@ -400,7 +365,6 @@ export class DatabaseStorage implements IStorage {
   // Dashboard operations
   async getDashboardMetrics(): Promise<DashboardMetrics> {
     try {
-      // Get counts from database safely
       const totalStartupsResult = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(startups);
@@ -424,8 +388,6 @@ export class DatabaseStorage implements IStorage {
         .where(eq(documents.processingStatus, 'completed'));
       const docsProcessed = docsProcessedResult[0]?.count || 0;
       
-      // In a real app, we would calculate trends by comparing with previous periods
-      // For the MVP, we'll use static numbers
       return {
         totalStartups,
         activeDueDiligence,
@@ -438,7 +400,6 @@ export class DatabaseStorage implements IStorage {
       };
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
-      // Return default values if there's an error
       return {
         totalStartups: 0,
         activeDueDiligence: 0,
@@ -455,7 +416,6 @@ export class DatabaseStorage implements IStorage {
   async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
     const docs = await this.getDocumentsByStartup(startupId);
     
-    // Define the required document categories and counts
     const categories = {
       'pitch-deck': { completion: 0, required: 1, uploaded: 0 },
       'financials': { completion: 0, required: 2, uploaded: 0 },
@@ -466,14 +426,12 @@ export class DatabaseStorage implements IStorage {
       'other': { completion: 0, required: 0, uploaded: 0 }
     };
     
-    // Count uploaded documents by category
     docs.forEach(doc => {
       if (categories[doc.type]) {
         categories[doc.type].uploaded += 1;
       }
     });
     
-    // Calculate completion percentages
     let totalRequired = 0;
     let totalUploaded = 0;
     

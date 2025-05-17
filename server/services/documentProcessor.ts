@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { Document, InsertChunk } from "@shared/schema";
 import { DocumentProcessingResult } from "@shared/types";
 import OpenAI from "openai";
+import { analyzeStartupAlignment } from "./openai";
 // Importamos solo cuando se usen para evitar errores con pdf-parse
 // import pdf from 'pdf-parse';
 // import mammoth from 'mammoth';
@@ -441,7 +442,7 @@ async function calculateTextSimilarity(text: string): Promise<number> {
 /**
  * Re-analyze startup alignment score after processing a document
  */
-async function analyzeStartupAlignment(startupId: string): Promise<void> {
+async function analyzeStartupAlignmentLocal(startupId: string): Promise<void> {
   const documents = await storage.getDocumentsByStartup(startupId);
   
   // Only perform analysis if we have enough documents
