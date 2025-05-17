@@ -16,27 +16,35 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
-    // Validar entrada
+    // Validación de entrada
     if (!text || text.trim() === "") {
       throw new Error("El texto no puede estar vacío");
     }
-
-    // Limitar tamaño para evitar exceder límites de la API
+    
+    // Limitar tamaño para evitar exceder límites de API
     const truncatedText = text.slice(0, 8000);
-
+    
+    // Llamada a API con modelo correcto y configuración explícita
     const response = await openai.embeddings.create({
       model: "text-embedding-3-large",
       input: truncatedText,
-      encoding_format: "float", // Asegura que obtenemos un vector de números flotantes
-      dimensions: 1536 // Explicitamente solicitamos 1536 dimensiones para coincidir con el schema
+      encoding_format: "float",
+      dimensions: 1536 // Dimensión específica para pgvector
     });
-
+    
     if (!response.data || response.data.length === 0) {
       throw new Error("No se recibieron embeddings de la API de OpenAI");
     }
-
+    
     return response.data[0].embedding;
   } catch (error: any) {
+    // Mejorar manejo de errores específicos
+    if (error.response?.status === 429) {
+      throw new Error("Límite de tasa de API excedido. Reintentar después");
+    } else if (error.response?.status === 500) {
+      throw new Error("Error del servidor de OpenAI. Reintentar después");
+    }
+    
     console.error("Error al generar embedding:", error);
     throw new Error(`No se pudo generar embedding: ${error.message}`);
   }
@@ -82,11 +90,9 @@ export async function processQuery(
   request: AiQueryRequest
 ): Promise<AiQueryResponse> {
   const { startupId, question, includeSourceDocuments = true } = request;
-
-  console.log(
-    `Procesando consulta: "${question}" para startupId: ${startupId || "todos"}`
-  );
-
+  
+  console.log(`Procesando consulta: "${question}" para startupId: ${startupId || "todos"}`);
+  
   try {
     // Intentar generar embedding de la consulta
     let questionEmbedding: number[] | null = null;
@@ -131,18 +137,22 @@ export async function processQuery(
       };
     }
 
-    // Construir contexto a partir de los fragments obtenidos
+    // Mejorar el formato del contexto con metadatos más detallados
     const context = relevantChunks
-      .map((chunk) => {
+      .map((chunk, index) => {
+        // Obtener metadata detallada sobre la fuente
         const sourceName = chunk.metadata?.source || "Documento sin nombre";
-        const documentType = chunk.metadata?.documentType || "desconocido";
-        return `--- Fragmento de "${sourceName}" (${documentType}) ---\n${chunk.content}`;
+        const sourceType = chunk.metadata?.documentType || "desconocido";
+        const pageInfo = chunk.metadata?.page ? ` (página ${chunk.metadata.page})` : "";
+        const chunkIndex = index + 1;
+        
+        return `[FUENTE ${chunkIndex}] "${sourceName}" (${sourceType})${pageInfo}:\n${chunk.content}`;
       })
       .join("\n\n");
     
     console.log(`Enviando consulta a OpenAI con ${relevantChunks.length} fragmentos de contexto`);
     
-    // Llamada mejorada a OpenAI con sistema de prompt engineering
+    // Mejorar el prompt de sistema para incluir citaciones detalladas
     const chatResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -152,8 +162,10 @@ export async function processQuery(
             "Eres un asistente analista de inversiones especializado en startups. " +
             "Tu tarea es responder preguntas sobre startups basándote ÚNICAMENTE en la información proporcionada en el contexto. " +
             "Si la información no está presente en el contexto, indícalo claramente sin inventar hechos. " +
-            "Cuando cites información, indica la fuente específica. " +
-            "Estructura tus respuestas de manera clara, con datos concretos y análisis pertinente para decisiones de inversión. " +
+            "\n\nMUY IMPORTANTE: Cuando cites información, DEBES indicar la fuente específica usando el formato [FUENTE X], " +
+            "donde X es el número de la fuente de donde obtienes la información. Esto es crucial para mantener la trazabilidad " +
+            "de la información. Cada afirmación importante debe incluir su fuente correspondiente. " +
+            "\n\nEstructura tus respuestas de manera clara, con datos concretos y análisis pertinente para decisiones de inversión. " +
             "Utiliza lenguaje profesional pero accesible. Si detectas inconsistencias en los datos, señálalas."
         },
         {
@@ -169,11 +181,11 @@ export async function processQuery(
       chatResponse.choices?.[0]?.message?.content ||
       "No se pudo generar una respuesta.";
 
-    // Preparar fuentes si se solicitaron
+    // Preparar fuentes detalladas si se solicitaron
     let sources;
     if (includeSourceDocuments) {
       sources = await Promise.all(
-        relevantChunks.map(async (chunk) => {
+        relevantChunks.map(async (chunk, index) => {
           const document = await storage.getDocument(chunk.documentId);
           return {
             documentId: chunk.documentId,
@@ -184,6 +196,8 @@ export async function processQuery(
               (chunk.semanticScore as number) ||
               (chunk.similarityScore as number) ||
               0,
+            sourceIndex: index + 1, // Para mapear con las citas en la respuesta
+            metadata: chunk.metadata || {} // Incluir metadatos adicionales
           };
         })
       );
@@ -220,86 +234,172 @@ export async function processQuery(
 
 /**
  * Analiza el alineamiento de un startup con la tesis de inversión
+ * Implementa un análisis detallado por criterios con justificaciones
  */
 export async function analyzeStartupAlignment(
   startupId: string
-): Promise<number> {
+): Promise<any> {
   try {
     const startup = await storage.getStartup(startupId);
     if (!startup) {
       throw new Error("Startup not found");
     }
-
+    
+    // Obtener datos necesarios
     const documents = await storage.getDocumentsByStartup(startupId);
     const allChunks = await storage.searchChunks("", startupId, 30);
-
-    // Tesis de inversión simplificada
+    
+    // Definir criterios con pesos
+    const criteria = {
+      sector: { weight: 0.25, score: 0, justification: "" },
+      marketPotential: { weight: 0.20, score: 0, justification: "" },
+      technology: { weight: 0.20, score: 0, justification: "" },
+      team: { weight: 0.15, score: 0, justification: "" },
+      traction: { weight: 0.10, score: 0, justification: "" },
+      businessModel: { weight: 0.10, score: 0, justification: "" }
+    };
+    
+    // Concatenar contenido relevante para análisis
+    const documentContent = allChunks
+      .map(chunk => chunk.content)
+      .join("\n\n")
+      .slice(0, 15000); // Limitar tamaño para API
+    
+    // Tesis de inversión de H20 Capital
     const investmentThesis = `
       H20 Capital busca invertir en startups tecnológicas innovadoras con alto potencial de crecimiento,
-      preferentemente en etapas pre-seed y seed. Nos enfocamos en los siguientes sectores:
-      1. Fintech
-      2. SaaS
-      3. Inteligencia Artificial
-      4. Marketplace
+      preferentemente en etapas pre-seed y seed, en América Latina y con potencial de expansión global.
+      Sectores prioritarios: Fintech, SaaS, Inteligencia Artificial, Marketplace.
+      Características valoradas: equipo técnico sólido, propuesta de valor diferenciada,
+      modelo de negocio escalable, y métricas de tracción iniciales prometedoras.
     `;
+    
+    // Analizar cada criterio utilizando IA
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: 
+              "Eres un analista experto en capital de riesgo con especialidad en evaluación de startups. " +
+              "Tu tarea es evaluar un startup comparándolo con la tesis de inversión proporcionada y " +
+              "asignar puntuaciones (0-100) a cada criterio con justificaciones detalladas."
+          },
+          {
+            role: "user",
+            content: `
+              TESIS DE INVERSIÓN:
+              ${investmentThesis}
+              
+              DATOS DEL STARTUP:
+              Nombre: ${startup.name}
+              Vertical: ${startup.vertical}
+              Etapa: ${startup.stage}
+              Ubicación: ${startup.location}
+              
+              INFORMACIÓN DEL STARTUP:
+              ${documentContent}
+              
+              CRITERIOS A EVALUAR:
+              1. Sector: Alineación del sector/vertical con la tesis de inversión
+              2. Potencial de mercado: Tamaño, crecimiento y oportunidad
+              3. Tecnología: Innovación, diferenciación y ventajas competitivas
+              4. Equipo: Experiencia, habilidades y track record
+              5. Tracción: Métricas, crecimiento y validación de mercado
+              6. Modelo de negocio: Escalabilidad, rentabilidad y unit economics
+              
+              Para cada criterio, proporciona:
+              - Puntuación (0-100)
+              - Justificación detallada
+              - Fortalezas y debilidades
+              
+              Devuelve tu análisis en formato JSON.
+            `
+          }
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" }
+      });
 
-    let alignmentScore = 0;
-
-    // Parte semántica usando embeddings
-    if (allChunks.length > 0) {
-      try {
-        const thesisEmbedding = await generateEmbedding(investmentThesis);
-        const chunkScores = await Promise.all(
-          allChunks.map(async (chunk: any) => {
-            try {
-              const chunkEmbedding = await generateEmbedding(chunk.content);
-              return calculateCosineSimilarity(
-                thesisEmbedding,
-                chunkEmbedding
-              );
-            } catch {
-              return 0;
-            }
-          })
-        );
-        const topScores = chunkScores.sort((a, b) => b - a).slice(0, 5);
-        const semanticScore =
-          topScores.reduce((sum, s) => sum + s, 0) / topScores.length;
-        alignmentScore += semanticScore * 0.5;
-        console.log(`Puntaje semántico: ${semanticScore}`);
-      } catch {
-        console.error(
-          "Error al usar embeddings para análisis de alineamiento"
-        );
-      }
+      // Procesar y estructurar la respuesta
+      const analysisResult = JSON.parse(response.choices[0].message.content || "{}");
+      
+      // Calcular puntuación general ponderada
+      let finalScore = 0;
+      const results = {
+        score: 0,
+        breakdown: {},
+        recommendations: [],
+        strengths: [],
+        weaknesses: []
+      };
+      
+      // Procesar los resultados del análisis
+      Object.entries(analysisResult.criteria || {}).forEach(([key, data]: [string, any]) => {
+        const criterionWeight = criteria[key]?.weight || 0.1;
+        const normalizedScore = data.score / 100; // Convertir a escala 0-1
+        finalScore += normalizedScore * criterionWeight;
+        
+        // Agregar al desglose
+        results.breakdown[key] = {
+          score: data.score,
+          justification: data.justification,
+          strengths: data.strengths || [],
+          weaknesses: data.weaknesses || []
+        };
+        
+        // Agregar fortalezas y debilidades generales
+        if (data.strengths) {
+          results.strengths = [...results.strengths, ...data.strengths];
+        }
+        if (data.weaknesses) {
+          results.weaknesses = [...results.weaknesses, ...data.weaknesses];
+        }
+      });
+      
+      // Recomendaciones finales
+      results.recommendations = analysisResult.recommendations || [];
+      results.score = Math.min(Math.max(finalScore, 0), 1); // Asegurar entre 0 y 1
+      
+      // Actualizar score en la base de datos
+      await storage.updateStartup(startupId, { alignmentScore: results.score });
+      
+      return results;
+    } catch (error) {
+      console.error("Error en análisis de alineamiento con IA:", error);
+      
+      // Fallback a método tradicional si falla el análisis con IA
+      const preferredVerticals = ["fintech", "saas", "ai", "marketplace"];
+      const verticalScore = preferredVerticals.includes(startup.vertical) ? 0.15 : 0.05;
+      
+      const stageScores: Record<string, number> = {
+        "pre-seed": 0.15,
+        "seed": 0.15,
+        "series-a": 0.05,
+      };
+      const stageScore = stageScores[startup.stage] || 0;
+      
+      const docsScore = Math.min(documents.length / 15, 0.1);
+      
+      let alignmentScore = verticalScore + stageScore + docsScore;
+      alignmentScore = Math.min(Math.max(alignmentScore, 0), 1);
+      
+      await storage.updateStartup(startupId, { alignmentScore });
+      
+      return {
+        score: alignmentScore,
+        breakdown: {
+          sector: { score: verticalScore * 100, justification: "Método fallback" },
+          stage: { score: stageScore * 100, justification: "Método fallback" },
+          documents: { score: docsScore * 100, justification: "Método fallback" }
+        },
+        recommendations: ["Añadir más documentos para un análisis detallado"]
+      };
     }
-
-    // Parte tradicional (50%)
-    const preferredVerticals = ["fintech", "saas", "ai", "marketplace"];
-    const verticalScore = preferredVerticals.includes(startup.vertical)
-      ? 0.15
-      : 0.05;
-
-    const stageScores: Record<string, number> = {
-      "pre-seed": 0.15,
-      seed: 0.15,
-      "series-a": 0.05,
-    };
-    const stageScore = stageScores[startup.stage] || 0;
-
-    const docsScore = Math.min(documents.length / 15, 0.1);
-
-    alignmentScore += verticalScore + stageScore + docsScore;
-    alignmentScore = Math.min(Math.max(alignmentScore, 0), 1);
-
-    await storage.updateStartup(startupId, { alignmentScore });
-
-    return alignmentScore;
   } catch (error) {
     console.error("Error al analizar alineamiento del startup:", error);
-    throw new Error(
-      "No se pudo analizar el alineamiento del startup con la tesis de inversión."
-    );
+    throw new Error("No se pudo analizar el alineamiento del startup con la tesis de inversión.");
   }
 }
 

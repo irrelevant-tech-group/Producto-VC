@@ -35,8 +35,204 @@ interface ChatMessage {
     documentType?: string;
     content: string;
     relevanceScore?: number;
+    sourceIndex?: number;
+    metadata?: Record<string, any>;
   }>;
 }
+
+// Componente para mostrar fuentes de forma interactiva
+const SourceDetail = ({ source }: { source: any }) => {
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <div 
+      className={`text-xs p-2 ${expanded ? 'bg-secondary-100' : 'bg-white'} rounded border border-secondary-200 hover:border-primary-300 transition-colors cursor-pointer`}
+      onClick={() => setExpanded(!expanded)}
+    >
+      <div className="flex justify-between items-center">
+        <p className="font-medium truncate">{source.documentName}</p>
+        <Badge 
+          variant="outline" 
+          className="text-xs capitalize"
+        >
+          {source.documentType?.replace('-', ' ')}
+        </Badge>
+      </div>
+      
+      <div className={`mt-2 text-secondary-600 overflow-hidden transition-all duration-200 ${expanded ? 'max-h-96' : 'max-h-16'}`}>
+        <p className="whitespace-pre-line">
+          {expanded ? source.content : `${source.content.substring(0, 150)}...`}
+        </p>
+        
+        {source.metadata && expanded && (
+          <div className="mt-2 pt-2 border-t border-secondary-100">
+            <p className="text-xs text-secondary-500">Metadatos:</p>
+            <ul className="list-disc pl-4 text-xs text-secondary-500">
+              {Object.entries(source.metadata).map(([key, value]) => (
+                <li key={key}>{key}: {value}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      
+      {source.relevanceScore !== undefined && (
+        <div className="mt-1 flex items-center">
+          <span className="text-xs text-secondary-500 mr-1">Relevancia:</span>
+          <div className="w-24 bg-secondary-100 h-1.5 rounded-full">
+            <div 
+              className="h-1.5 bg-primary-500 rounded-full" 
+              style={{ width: `${Math.round(source.relevanceScore * 100)}%` }}
+            />
+          </div>
+          <span className="ml-1 text-xs text-secondary-500">
+            {Math.round(source.relevanceScore * 100)}%
+          </span>
+        </div>
+      )}
+      
+      <div className="mt-1 text-xs text-secondary-500 text-right">
+        {expanded ? 'Clic para contraer' : 'Clic para expandir'}
+      </div>
+    </div>
+  );
+};
+
+// Función para formatear respuestas con citaciones
+const formatAnswer = (answer: string, sources?: Array<any>) => {
+  if (!sources || sources.length === 0) return <div className="whitespace-pre-wrap">{answer}</div>;
+  
+  // Crear un mapa de fuentes por índice
+  const sourceMap = new Map();
+  sources.forEach((source, index) => {
+    sourceMap.set(`[FUENTE ${index + 1}]`, source);
+  });
+  
+  // Resaltar las citaciones en el texto
+  let formattedAnswer = answer;
+  
+  // Reemplazar [FUENTE X] con elementos interactivos
+  Array.from(sourceMap.keys()).forEach(sourceKey => {
+    const source = sourceMap.get(sourceKey);
+    formattedAnswer = formattedAnswer.replace(
+      new RegExp(sourceKey, 'g'),
+      `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-800 cursor-pointer hover:bg-primary-200" 
+             data-source-id="${source.documentId}">
+        ${sourceKey}
+      </span>`
+    );
+  });
+  
+  return (
+    <div 
+      className="whitespace-pre-wrap" 
+      dangerouslySetInnerHTML={{ __html: formattedAnswer }}
+      onClick={(e) => {
+        // Manejar clicks en las citaciones
+        const target = e.target as HTMLElement;
+        if (target.dataset.sourceId) {
+          // Mostrar tooltip o modal con detalles de la fuente
+          const sourceId = target.dataset.sourceId;
+          const sourceDetail = sources.find(s => s.documentId === sourceId);
+          if (sourceDetail) {
+            // Implementar lógica para mostrar detalle de fuente
+            console.log("Source clicked:", sourceDetail);
+          }
+        }
+      }}
+    />
+  );
+};
+
+// Componente para mostrar preguntas sugeridas categorizadas
+const SuggestedQuestions = ({ 
+  questions, 
+  onSelectQuestion 
+}: { 
+  questions: string[], 
+  onSelectQuestion: (q: string) => void 
+}) => {
+  // Categorizar preguntas
+  const categorizedQuestions = {
+    'Financieras': questions.filter(q => 
+      q.includes('financier') || q.includes('métricas') || q.includes('ingresos') || 
+      q.includes('MRR') || q.includes('ARR') || q.includes('CAC')
+    ),
+    'Equipo': questions.filter(q => 
+      q.includes('equipo') || q.includes('fundador') || q.includes('experiencia')
+    ),
+    'Mercado': questions.filter(q => 
+      q.includes('mercado') || q.includes('competencia') || q.includes('sector')
+    ),
+    'Producto': questions.filter(q => 
+      q.includes('producto') || q.includes('tecnología') || q.includes('servicio')
+    ),
+    'General': questions.filter(q => 
+      !q.includes('financier') && !q.includes('métricas') && !q.includes('equipo') && 
+      !q.includes('fundador') && !q.includes('mercado') && !q.includes('competencia') && 
+      !q.includes('producto') && !q.includes('tecnología')
+    )
+  };
+  
+  return (
+    <div className="mt-2">
+      <p className="text-xs text-secondary-500 mb-1">Preguntas sugeridas:</p>
+      <div className="space-y-2">
+        {Object.entries(categorizedQuestions).map(([category, categoryQuestions]) => 
+          categoryQuestions.length > 0 && (
+            <div key={category}>
+              <p className="text-xs font-medium text-secondary-600">{category}:</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {categoryQuestions.map((q, idx) => (
+                  <Button
+                    key={idx}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => onSelectQuestion(q)}
+                  >
+                    {q}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Componente para mostrar preguntas frecuentes
+const FrequentQuestions = ({ 
+  questions, 
+  onSelectQuestion 
+}: { 
+  questions: string[], 
+  onSelectQuestion: (q: string) => void 
+}) => {
+  if (questions.length === 0) return null;
+  
+  return (
+    <div className="mt-4 border-t border-secondary-200 pt-4">
+      <p className="text-xs font-medium text-secondary-600 mb-2">Preguntas frecuentes:</p>
+      <div className="space-y-1">
+        {questions.map((q, idx) => (
+          <Button
+            key={idx}
+            variant="ghost"
+            size="sm"
+            className="text-xs w-full justify-start text-secondary-600 hover:text-primary-700"
+            onClick={() => onSelectQuestion(q)}
+          >
+            <MessageCircle className="h-3 w-3 mr-2" />
+            {q}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export default function AiAssistant() {
   // Extract startup ID from URL if present
@@ -55,6 +251,7 @@ export default function AiAssistant() {
     }
   ]);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
+  const [frequentQuestions, setFrequentQuestions] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -132,6 +329,13 @@ export default function AiAssistant() {
     e.preventDefault();
     
     if (!question.trim()) return;
+    
+    // Añadir pregunta a frecuentes si no existe ya
+    if (!frequentQuestions.includes(question)) {
+      setFrequentQuestions(prev => 
+        [question, ...prev].slice(0, 5) // Mantener solo las 5 más recientes
+      );
+    }
     
     // Add user question to chat
     setChatHistory(prev => [...prev, { role: 'user', content: question }]);
@@ -233,6 +437,12 @@ export default function AiAssistant() {
                 onCheckedChange={setShowSources}
               />
             </div>
+            
+            {/* Mostrar historial de preguntas frecuentes */}
+            <FrequentQuestions 
+              questions={frequentQuestions} 
+              onSelectQuestion={setQuestion} 
+            />
           </CardContent>
         </Card>
 
@@ -261,47 +471,19 @@ export default function AiAssistant() {
                         {message.role === 'user' ? 'You' : 'AI Assistant'}
                       </span>
                     </div>
-                    <div className="whitespace-pre-wrap">{message.content}</div>
+                    
+                    {/* Usar formatAnswer para mostrar respuestas con citaciones interactivas */}
+                    {message.role === 'assistant' 
+                      ? formatAnswer(message.content, message.sources)
+                      : <div className="whitespace-pre-wrap">{message.content}</div>
+                    }
                     
                     {message.sources && message.sources.length > 0 && showSources && (
                       <div className="mt-2 pt-2 border-t border-secondary-200">
                         <p className="text-xs font-semibold mb-1">Fuentes:</p>
                         <div className="space-y-2">
                           {message.sources.map((source, sIdx) => (
-                            <div 
-                              key={sIdx} 
-                              className="text-xs p-2 bg-white rounded border border-secondary-200 hover:border-primary-300 transition-colors"
-                            >
-                              <div className="flex justify-between items-center mb-1">
-                                <p className="font-medium">{source.documentName}</p>
-                                <Badge 
-                                  variant="outline" 
-                                  className="text-xs capitalize"
-                                >
-                                  {source.documentType?.replace('-', ' ')}
-                                </Badge>
-                              </div>
-                              <p className="text-secondary-600 whitespace-pre-line">
-                                {source.content.length > 300 
-                                  ? `${source.content.substring(0, 300)}...` 
-                                  : source.content
-                                }
-                              </p>
-                              {source.relevanceScore !== undefined && (
-                                <div className="mt-1 flex items-center">
-                                  <span className="text-xs text-secondary-500 mr-1">Relevancia:</span>
-                                  <div className="w-24 bg-secondary-100 h-1.5 rounded-full">
-                                    <div 
-                                      className="h-1.5 bg-primary-500 rounded-full" 
-                                      style={{ width: `${Math.round(source.relevanceScore * 100)}%` }}
-                                    />
-                                  </div>
-                                  <span className="ml-1 text-xs text-secondary-500">
-                                    {Math.round(source.relevanceScore * 100)}%
-                                  </span>
-                                </div>
-                              )}
-                            </div>
+                            <SourceDetail key={sIdx} source={source} />
                           ))}
                         </div>
                       </div>
@@ -330,25 +512,11 @@ export default function AiAssistant() {
                 </Button>
               </form>
               
-              {/* Preguntas sugeridas */}
-              {suggestedQuestions.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs text-secondary-500 mb-1">Preguntas sugeridas:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestedQuestions.map((q, idx) => (
-                      <Button
-                        key={idx}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => setQuestion(q)}
-                      >
-                        {q}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Preguntas sugeridas categorizadas */}
+              <SuggestedQuestions 
+                questions={suggestedQuestions}
+                onSelectQuestion={setQuestion}
+              />
               
               <p className="text-xs text-secondary-500 mt-2">
                 Try asking about startup metrics, financials, team, or market analysis

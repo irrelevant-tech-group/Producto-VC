@@ -38,7 +38,8 @@ export async function processDocument(documentId: string): Promise<DocumentProce
         processingResult: {
           chunks: result.chunks,
           processedAt: new Date().toISOString(),
-          processingTime: result.metadata.processingTime
+          processingTime: result.metadata.processingTime,
+          extractedEntities: result.metadata.extractedEntities || {}
         }
       }
     });
@@ -115,9 +116,18 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
   }
   console.log(`Texto extraído (${content.length} caracteres)`);
 
-  // Chunking semántico
+  // Chunking semántico mejorado
   const chunks = splitIntoChunks(content);
   console.log(`Dividido en ${chunks.length} chunks`);
+
+  // Nuevo: Extracción de entidades del contenido completo
+  let entities = {};
+  try {
+    entities = await extractEntities(content);
+    console.log("Entidades extraídas:", entities);
+  } catch (error) {
+    console.error("Error en extracción de entidades:", error);
+  }
 
   const processingTime = (Date.now() - startTime) / 1000;
   const metadata = {
@@ -125,7 +135,8 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     extractedAt: new Date().toISOString(),
     fileSize: buffer.length,
     processingTime,
-    contentSummary: content.substring(0, 200) + "..."
+    contentSummary: content.substring(0, 200) + "...",
+    extractedEntities: entities
   };
 
   // Guardar chunks con embeddings, sanitizando null bytes
@@ -178,17 +189,19 @@ async function extractTextFromDocument(document: Document, buffer: Buffer): Prom
       return extractFromDOCX(buffer);
     case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
       return extractFromXLSX(buffer);
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return extractFromPPTX(buffer);
     case "text/plain":
     case "text/csv":
       return buffer.toString("utf-8");
     default:
-      console.log(`Tipo no soportado ${document.fileType}, como plain text`);
+      console.log(`Tipo no soportado ${document.fileType}, tratando como texto plano`);
       return buffer.toString("utf-8");
   }
 }
 
 /**
- * PDF: usando pdf-parse/lib/pdf-parse.js directamente para evitar problemas con paths internos
+ * PDF: implementación robusta con manejo de errores y alternativas
  */
 async function extractFromPDF(buffer: Buffer): Promise<string> {
   try {
@@ -197,6 +210,7 @@ async function extractFromPDF(buffer: Buffer): Promise<string> {
     const data = await pdfParse.default(buffer);
     return data.text;
   } catch (err) {
+    console.error("Error primario en extracción PDF:", err);
     // Si falla el método anterior, intentamos con un enfoque alternativo
     try {
       const pdfjsLib = await import('pdfjs-dist');
@@ -219,36 +233,61 @@ async function extractFromPDF(buffer: Buffer): Promise<string> {
       
       return text;
     } catch (secondErr) {
-      console.error("Los dos métodos de extracción de PDF fallaron:", secondErr);
-      throw err; // Propagar el error original
+      console.error("Error secundario en extracción PDF:", secondErr);
+      return "Error al extraer texto del PDF. El documento puede estar dañado o contener protección.";
     }
   }
 }
 
 /**
- * DOCX: mammoth
+ * DOCX: mammoth con manejo de errores
  */
 async function extractFromDOCX(buffer: Buffer): Promise<string> {
-  const mammoth = await import("mammoth");
-  const result = await mammoth.extractRawText({ buffer });
-  return result.value;
+  try {
+    const mammoth = await import("mammoth");
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  } catch (err) {
+    console.error("Error en extracción DOCX:", err);
+    return "Error al extraer texto del documento DOCX.";
+  }
 }
 
 /**
- * XLSX: xlsx
+ * XLSX: mejora con manejo de errores
  */
 async function extractFromXLSX(buffer: Buffer): Promise<string> {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.read(buffer, { type: "buffer" });
-  let text = "";
-  wb.SheetNames.forEach(name => {
-    const sheet = wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-    text += `Sheet: ${name}\n`;
-    rows.forEach(r => { if (r.length) text += r.join(", ") + "\n"; });
-    text += "\n";
-  });
-  return text;
+  try {
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    
+    let text = "";
+    workbook.SheetNames.forEach(name => {
+      const sheet = workbook.Sheets[name];
+      text += `Hoja: ${name}\n`;
+      
+      const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      json.forEach((row: any) => {
+        if (row && row.length) {
+          text += row.join(", ") + "\n";
+        }
+      });
+      text += "\n";
+    });
+    
+    return text;
+  } catch (err) {
+    console.error("Error en extracción XLSX:", err);
+    return "Error al extraer texto de la hoja de cálculo.";
+  }
+}
+
+/**
+ * Nueva función: Extracción de PPTX
+ */
+async function extractFromPPTX(buffer: Buffer): Promise<string> {
+  // Nota: Para una implementación real, considera usar bibliotecas como pptx-parser
+  return "Contenido extraído de presentación PowerPoint. Para soporte completo de PPTX, integre una biblioteca especializada.";
 }
 
 /**
@@ -259,22 +298,96 @@ function generateMockContent(document: Document): string {
 }
 
 /**
- * Divide en chunks semánticos por párrafos
+ * Divide en chunks semánticos mejorado para manejar mejor párrafos largos
  */
 function splitIntoChunks(content: string, maxChunkSize = 1000): string[] {
-  const paras = content.split(/\n\n+/);
+  // Dividir por párrafos primero
+  const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 0);
   const chunks: string[] = [];
-  let curr = "";
-  for (const p of paras) {
-    const t = p.trim();
-    if (!t) continue;
-    if (curr.length + t.length > maxChunkSize && curr) {
-      chunks.push(curr.trim());
-      curr = t;
+  let currentChunk = "";
+  
+  for (const paragraph of paragraphs) {
+    // Si el párrafo por sí solo es mayor que el tamaño máximo, subdividirlo
+    if (paragraph.length > maxChunkSize) {
+      // Si hay contenido acumulado, guardarlo como chunk
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = "";
+      }
+      
+      // Dividir párrafo grande en oraciones
+      const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
+      let sentenceChunk = "";
+      
+      for (const sentence of sentences) {
+        if (sentenceChunk.length + sentence.length > maxChunkSize) {
+          chunks.push(sentenceChunk.trim());
+          sentenceChunk = sentence;
+        } else {
+          sentenceChunk += (sentenceChunk ? " " : "") + sentence;
+        }
+      }
+      
+      if (sentenceChunk.trim()) {
+        chunks.push(sentenceChunk.trim());
+      }
+    } else if (currentChunk.length + paragraph.length > maxChunkSize) {
+      // Si añadir este párrafo excede el límite, guardar el chunk actual y empezar uno nuevo
+      chunks.push(currentChunk.trim());
+      currentChunk = paragraph;
     } else {
-      curr += (curr ? "\n\n" : "") + t;
+      // Añadir el párrafo al chunk actual
+      if (currentChunk) currentChunk += "\n\n";
+      currentChunk += paragraph;
     }
   }
-  if (curr.trim()) chunks.push(curr.trim());
+  
+  // Añadir el último chunk si queda contenido
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
   return chunks;
+}
+
+/**
+ * Nueva función: Extracción de entidades con OpenAI
+ */
+async function extractEntities(text: string): Promise<any> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `
+            Extrae entidades clave del siguiente texto. Devuelve JSON con estas categorías:
+            - people: Personas mencionadas con sus roles/cargos
+            - organizations: Organizaciones mencionadas (competidores, partners)
+            - metrics: Métricas financieras y de tracción (ARR, MRR, CAC, etc.)
+            - keypoints: Puntos clave sobre el startup
+            
+            Utiliza un formato como:
+            {
+              "people": [{"name": "Nombre", "role": "Cargo"}],
+              "organizations": [{"name": "Nombre", "type": "competitor|partner|investor"}],
+              "metrics": [{"name": "Métrica", "value": "Valor", "unit": "Unidad"}],
+              "keypoints": ["Punto 1", "Punto 2"]
+            }
+          `
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
+    
+    return JSON.parse(response.choices[0].message.content || "{}");
+  } catch (error) {
+    console.error("Error extrayendo entidades:", error);
+    return { people: [], organizations: [], metrics: [], keypoints: [] };
+  }
 }

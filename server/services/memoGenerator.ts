@@ -4,6 +4,9 @@ import { processQuery, generateEmbedding } from "./openai";
 import OpenAI from "openai";
 import * as path from "path";
 import * as fs from "fs";
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, BorderStyle } from 'docx';
 
 // Template for investment memos
 const DEFAULT_MEMO_TEMPLATE = [
@@ -31,24 +34,24 @@ export async function generateMemoSection(startupId: string, section: string): P
       throw new Error(`Startup con ID ${startupId} no encontrado`);
     }
     
-    // Preparar embedding para la sección - usar contexto adicional para mejorar relevancia
+    // Preparar embedding para la sección con contexto adicional
     const sectionContext = `Sección de memo de inversión: ${section}. 
-    Información relacionada con ${section} para un startup de ${startup.vertical} 
+    Información relevante para ${section} en un startup de ${startup.vertical} 
     en etapa ${startup.stage} ubicado en ${startup.location}.`;
     
-    // Generar embedding para buscar información relevante a esta sección
+    // Generar embedding para búsqueda contextual
     let relevantChunks = [];
     try {
       console.log(`Generando embedding para sección "${section}"`);
       const sectionEmbedding = await generateEmbedding(sectionContext);
       
-      // Buscar chunks relevantes usando búsqueda vectorial
+      // Búsqueda vectorial para encontrar chunks relevantes
       relevantChunks = await storage.searchChunksByEmbedding(sectionEmbedding, startupId, 10);
       console.log(`Encontrados ${relevantChunks.length} chunks relevantes para sección "${section}"`);
     } catch (embeddingError) {
       console.error(`Error al generar embedding para sección "${section}":`, embeddingError);
       
-      // Fallback: búsqueda por texto
+      // Fallback a búsqueda por texto
       relevantChunks = await storage.searchChunks(section, startupId, 10);
       console.log(`Fallback: Encontrados ${relevantChunks.length} chunks por búsqueda de texto`);
     }
@@ -59,14 +62,16 @@ export async function generateMemoSection(startupId: string, section: string): P
       relevantChunks = await storage.searchChunks("", startupId, 5);
     }
     
-    // Preparar contexto con información de la fuente
+    // Preparar contexto con información detallada de las fuentes
     const context = relevantChunks
       .map(chunk => {
         const sourceName = chunk.metadata?.source || 'Documento sin título';
-        const score = chunk.semanticScore 
-          ? ` (relevancia: ${(chunk.semanticScore * 100).toFixed(1)}%)` 
+        const sourceType = chunk.metadata?.documentType || 'desconocido';
+        const pageInfo = chunk.metadata?.page ? ` (página ${chunk.metadata.page})` : '';
+        const score = chunk.similarity 
+          ? ` (relevancia: ${(chunk.similarity * 100).toFixed(1)}%)` 
           : '';
-        return `--- De "${sourceName}"${score} ---\n${chunk.content}`;
+        return `--- De "${sourceName}" (${sourceType})${pageInfo}${score} ---\n${chunk.content}`;
       })
       .join("\n\n");
     
@@ -101,7 +106,7 @@ export async function generateMemoSection(startupId: string, section: string): P
     
     console.log(`Generando contenido para sección "${section}" con ${relevantChunks.length} chunks`);
     
-    // Llamada a OpenAI con prompt mejorado
+    // Llamada a OpenAI con prompt mejorado para mejor calidad
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -110,11 +115,13 @@ export async function generateMemoSection(startupId: string, section: string): P
           role: "system",
           content: 
             "Eres un experto analista de venture capital especializado en la creación de investment memos. " +
-            "Tu tarea es generar una sección específica de un memo de inversión con contenido de alta calidad basado únicamente en la información proporcionada. " +
-            "Usa un estilo profesional, analítico y objetivo. " +
+            "Tu tarea es generar una sección específica de un memo de inversión con contenido de alta calidad " +
+            "basado únicamente en la información proporcionada. " +
+            "Utiliza un estilo profesional, analítico y objetivo. " +
             "Incluye datos concretos y métricas cuando estén disponibles. " +
             "Organiza el contenido con subtítulos cuando sea apropiado para mejorar la legibilidad. " +
-            "No inventes información; si hay brechas en los datos, indícalo claramente."
+            "Si hay información inconsistente entre fuentes, indica la discrepancia. " +
+            "No inventes información; si hay brechas importantes en los datos, indícalo claramente."
         },
         {
           role: "user",
@@ -128,10 +135,11 @@ export async function generateMemoSection(startupId: string, section: string): P
           # Instrucciones específicas para esta sección
           ${sectionSpecificPrompt}
           
-          # Información disponible
+          # Información disponible (cita estas fuentes cuando sea relevante)
           ${context}
           
-          Por favor, genera un contenido profesional, bien estructurado y basado en datos para la sección "${section}" del memo de inversión. Extensión recomendada: 400-800 palabras.`
+          Por favor, genera un contenido profesional, bien estructurado y basado en datos para la sección "${section}" del memo de inversión. 
+          Extensión recomendada: 400-800 palabras. Utiliza formato Markdown para estructurar el contenido.`
         }
       ],
       temperature: 0.4,
@@ -141,16 +149,23 @@ export async function generateMemoSection(startupId: string, section: string): P
     const content = response.choices[0].message.content || 
       `No se pudo generar contenido para la sección "${section}".`;
     
-    // Recopilar fuentes para citar
-    const sources = await Promise.all(relevantChunks.slice(0, 5).map(async chunk => {
-      const document = await storage.getDocument(chunk.documentId);
-      return {
-        documentId: chunk.documentId,
-        documentName: document?.name || "Documento sin nombre",
-        content: chunk.content.substring(0, 150) + "...",
-        relevanceScore: chunk.semanticScore || chunk.similarityScore || 0
-      };
-    }));
+    // Procesar fuentes para citación explícita
+    const sources = await Promise.all(
+      relevantChunks.slice(0, 5).map(async chunk => {
+        const document = await storage.getDocument(chunk.documentId);
+        return {
+          documentId: chunk.documentId,
+          documentName: document?.name || "Documento sin nombre",
+          documentType: document?.type || "desconocido", 
+          content: chunk.content.substring(0, 150) + "...",
+          relevanceScore: chunk.similarity || 0,
+          metadata: {
+            page: chunk.metadata?.page,
+            extractedAt: chunk.metadata?.extractedAt
+          }
+        };
+      })
+    );
     
     console.log(`Sección "${section}" generada exitosamente`);
     
@@ -299,6 +314,245 @@ export async function updateMemoSections(
 }
 
 /**
+ * Genera un PDF a partir de un memo de inversión
+ */
+async function exportMemoToPdf(memo: Memo, startup: Startup): Promise<string> {
+  try {
+    // Crear instancia PDF
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    // Configuración de estilo corporativo
+    const primaryColor = '#1a56db'; // Azul corporativo
+    const secondaryColor = '#374151'; // Gris oscuro
+    const textColor = '#1f2937'; // Negro/gris oscuro
+    
+    // Configuración de fuentes
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(primaryColor);
+    
+    // Header con logo (simularemos un logo con texto)
+    doc.setFontSize(24);
+    doc.text('H20 Capital', 20, 20);
+    
+    // Título del documento
+    doc.setFontSize(20);
+    doc.text(`Investment Memo: ${startup.name}`, 20, 35);
+    
+    // Información básica del startup
+    doc.setFontSize(12);
+    doc.setTextColor(secondaryColor);
+    doc.text(`Vertical: ${startup.vertical} | Etapa: ${startup.stage} | v${memo.version}`, 20, 45);
+    doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 20, 52);
+    
+    // Línea separadora
+    doc.setDrawColor(primaryColor);
+    doc.setLineWidth(0.5);
+    doc.line(20, 55, 190, 55);
+    
+    // Iterar por secciones
+    let y = 65;
+    const sections = memo.sections as MemoSection[];
+    
+    for (const section of sections) {
+      // Verificar si necesitamos nueva página
+      if (y > 250) {
+        doc.addPage();
+        y = 20;
+      }
+      
+      // Título de sección
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(primaryColor);
+      doc.text(section.title, 20, y);
+      y += 8;
+      
+      // Contenido de sección
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      doc.setTextColor(textColor);
+      
+      // Dividir contenido en párrafos
+      const paragraphs = section.content.split('\n\n');
+      
+      for (const paragraph of paragraphs) {
+        if (paragraph.trim() === '') continue;
+        
+        // Verificar si es subtítulo (comienza con ## en markdown)
+        if (paragraph.trim().startsWith('## ')) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(14);
+          const subtitleText = paragraph.trim().substring(3);
+          doc.text(subtitleText, 20, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(12);
+          y += 6;
+          continue;
+        }
+        
+        // Texto normal con saltos de línea automáticos
+        const textLines = doc.splitTextToSize(paragraph, 170);
+        
+        // Verificar si necesitamos una nueva página para este párrafo
+        if (y + textLines.length * 6 > 280) {
+          doc.addPage();
+          y = 20;
+        }
+        
+        doc.text(textLines, 20, y);
+        y += textLines.length * 6 + 4; // Espaciado entre párrafos
+      }
+      
+      // Espacio entre secciones
+      y += 10;
+    }
+    
+    // Pie de página
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(10);
+      doc.setTextColor(secondaryColor);
+      doc.text(`Confidencial - H20 Capital - Página ${i} de ${pageCount}`, 20, 285);
+    }
+    
+    // Guardar PDF
+    const timestamp = new Date().toISOString().split('T')[0];
+    const fileName = `${startup.name.replace(/\s+/g, '_')}_Investment_Memo_v${memo.version}_${timestamp}.pdf`;
+    const filePath = path.join(__dirname, '..', '..', 'exports', fileName);
+    
+    // Asegurar que el directorio existe
+    if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
+      fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
+    }
+    
+    doc.save(filePath);
+    console.log(`PDF guardado en: ${filePath}`);
+    
+    // URL simulada para el frontend
+    const fileUrl = `/exports/${fileName}`;
+    
+    return fileUrl;
+  } catch (error) {
+    console.error("Error exportando memo a PDF:", error);
+    throw new Error("No se pudo exportar el memo a PDF");
+  }
+}
+
+/**
+ * Genera un documento DOCX a partir de un memo de inversión
+ */
+async function exportMemoToDocx(memo: Memo, startup: Startup): Promise<string> {
+  try {
+    const sections = memo.sections as MemoSection[];
+    const docxSections = [];
+    
+    // Título y información básica
+    docxSections.push(
+      new Paragraph({
+        text: `Investment Memo: ${startup.name}`,
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 200 }
+      }),
+      
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Vertical: ${startup.vertical} | Etapa: ${startup.stage} | Versión: ${memo.version}`,
+            size: 24
+          })
+        ],
+        spacing: { after: 200 }
+      }),
+      
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Fecha: ${new Date().toLocaleDateString()}`,
+            size: 24
+          })
+        ],
+        spacing: { after: 400 }
+      })
+    );
+    
+    // Crear secciones del documento
+    for (const section of sections) {
+      // Título de sección
+      docxSections.push(
+        new Paragraph({
+          text: section.title,
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 400, after: 200 }
+        })
+      );
+      
+      // Dividir contenido en párrafos
+      const paragraphs = section.content.split('\n\n');
+      
+      for (const paragraph of paragraphs) {
+        if (paragraph.trim() === '') continue;
+        
+        // Verificar si es subtítulo (comienza con ## en markdown)
+        if (paragraph.trim().startsWith('## ')) {
+          docxSections.push(
+            new Paragraph({
+              text: paragraph.trim().substring(3),
+              heading: HeadingLevel.HEADING_2,
+              spacing: { before: 300, after: 100 }
+            })
+          );
+          continue;
+        }
+        
+        // Texto normal
+        docxSections.push(
+          new Paragraph({
+            text: paragraph,
+            spacing: { after: 200 }
+          })
+        );
+      }
+    }
+    
+    // Crear documento DOCX
+    const doc = new DocxDocument({
+      sections: [{
+        properties: {},
+        children: docxSections
+      }]
+    });
+    
+    // Guardar el documento
+    const timestamp = new Date().toISOString().split('T')[0];
+    const fileName = `${startup.name.replace(/\s+/g, '_')}_Investment_Memo_v${memo.version}_${timestamp}.docx`;
+    const filePath = path.join(__dirname, '..', '..', 'exports', fileName);
+    
+    // Asegurar que el directorio existe
+    if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
+      fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
+    }
+    
+    const buffer = await Packer.toBuffer(doc);
+    fs.writeFileSync(filePath, buffer);
+    
+    console.log(`DOCX guardado en: ${filePath}`);
+    
+    // URL simulada para el frontend
+    const fileUrl = `/exports/${fileName}`;
+    
+    return fileUrl;
+  } catch (error) {
+    console.error("Error exportando memo a DOCX:", error);
+    throw new Error("No se pudo exportar el memo a DOCX");
+  }
+}
+
+/**
  * Exporta un memo a diferentes formatos (PDF, DOCX, slides)
  */
 export async function exportMemo(memoId: string, format: 'pdf' | 'docx' | 'slides'): Promise<string> {
@@ -315,60 +569,21 @@ export async function exportMemo(memoId: string, format: 'pdf' | 'docx' | 'slide
       throw new Error(`Startup with ID ${memo.startupId} not found`);
     }
     
-    // En producción, este código generaría archivos reales y los subiría a S3
-    // Para el MVP, simularemos este proceso
-    
-    // Generar nombre del archivo
-    const timestamp = new Date().toISOString().split('T')[0];
-    const sanitizedName = startup.name.replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `${sanitizedName}_investment_memo_v${memo.version}_${timestamp}.${format}`;
-    
-    // Simular URL para exportación
-    // En producción, sería URL de S3 o similar
-    const exportDir = path.join(__dirname, '..', '..', 'exports');
-    if (!fs.existsSync(exportDir)) {
-      fs.mkdirSync(exportDir, { recursive: true });
-    }
-    
-    // Crear o simular archivo según formato
-    let fileContent = '';
+    // Seleccionar método de exportación según formato
+    let exportUrl: string;
     
     if (format === 'pdf') {
-      // Simular contenido de PDF
-      // En implementación real, usar pdfkit u otra librería
-      fileContent = `
-Investment Memo: ${startup.name} (v${memo.version})
-Generated: ${new Date().toISOString()}
-
-${(memo.sections as MemoSection[]).map(section => {
-  return `# ${section.title}\n\n${section.content}\n\n`;
-}).join('\n')}
-      `;
-      
-      // Guardar como texto para simular
-      const filePath = path.join(exportDir, filename.replace('.pdf', '.txt'));
-      fs.writeFileSync(filePath, fileContent);
-      
+      exportUrl = await exportMemoToPdf(memo, startup);
     } else if (format === 'docx') {
-      // Simular contenido de DOCX
-      // En implementación real, usar docx u otra librería
-      fileContent = `
-Investment Memo: ${startup.name} (v${memo.version})
-Generated: ${new Date().toISOString()}
-
-${(memo.sections as MemoSection[]).map(section => {
-  return `# ${section.title}\n\n${section.content}\n\n`;
-}).join('\n')}
-      `;
-      
-      // Guardar como texto para simular
-      const filePath = path.join(exportDir, filename.replace('.docx', '.txt'));
-      fs.writeFileSync(filePath, fileContent);
-      
+      exportUrl = await exportMemoToDocx(memo, startup);
     } else if (format === 'slides') {
-      // Simular contenido de presentación
-      // En implementación real, usar pptxgenjs u otra librería
-      fileContent = `
+      // Para slides podemos mantener la versión simulada por ahora
+      const timestamp = new Date().toISOString().split('T')[0];
+      const fileName = `${startup.name.replace(/\s+/g, '_')}_slides_v${memo.version}_${timestamp}.pptx`;
+      exportUrl = `/exports/${fileName}`;
+      
+      // Simulación de archivo para slides
+      const mockSlideContent = `
 SLIDES: Investment Memo - ${startup.name} (v${memo.version})
 Generated: ${new Date().toISOString()}
 
@@ -378,17 +593,21 @@ ${(memo.sections as MemoSection[]).map(section => {
       `;
       
       // Guardar como texto para simular
-      const filePath = path.join(exportDir, filename.replace('.slides', '.txt'));
-      fs.writeFileSync(filePath, fileContent);
+      const filePath = path.join(__dirname, '..', '..', 'exports', fileName.replace('.pptx', '.txt'));
+      
+      // Asegurar que el directorio existe
+      if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
+        fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
+      }
+      
+      fs.writeFileSync(filePath, mockSlideContent);
+    } else {
+      throw new Error(`Formato no soportado: ${format}`);
     }
-    
-    // En producción, generar URL firmada de S3
-    // Para MVP, simular URL local
-    const mockUrl = `/exports/${filename}`;
     
     // Actualizar memo con URL de exportación
     const exportUrls = memo.exportUrls as Record<string, string> || {};
-    exportUrls[format] = mockUrl;
+    exportUrls[format] = exportUrl;
     
     await storage.updateMemo(memoId, { exportUrls });
     
@@ -398,12 +617,12 @@ ${(memo.sections as MemoSection[]).map(section => {
       memoId,
       startupId: memo.startupId,
       content: `Memo exportado a formato ${format.toUpperCase()}`,
-      metadata: { format, url: mockUrl }
+      metadata: { format, url: exportUrl }
     });
     
     console.log(`Memo ${memoId} exportado exitosamente a ${format}`);
     
-    return mockUrl;
+    return exportUrl;
   } catch (error) {
     console.error(`Error exportando memo ${memoId} a ${format}:`, error);
     throw error;

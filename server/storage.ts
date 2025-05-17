@@ -151,21 +151,48 @@ export class DatabaseStorage implements IStorage {
     return chunk;
   }
   
-  // Método actualizado para crear chunks con embedding
+  // Método actualizado para crear chunks con embedding y reintentos
   async createChunkWithEmbedding(insertChunk: InsertChunk, text: string): Promise<Chunk> {
     try {
-      const embedding = await generateEmbedding(text);
-      const [chunk] = await db.insert(chunks)
-        .values({ ...insertChunk, embedding })
-        .returning();
-      return chunk;
+      // Obtener embedding con reintentos
+      let embedding: number[] | null = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (attempts < maxAttempts) {
+        try {
+          embedding = await generateEmbedding(text);
+          break; // Salir del bucle si es exitoso
+        } catch (err) {
+          attempts++;
+          console.error(`Error generando embedding (intento ${attempts}/${maxAttempts}):`, err);
+          
+          if (attempts >= maxAttempts) {
+            throw err; // Re-lanzar el error después de alcanzar el máximo de intentos
+          }
+          
+          // Esperar antes de reintentar (backoff exponencial)
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempts)));
+        }
+      }
+      
+      // Si tenemos embedding, crear chunk con él
+      if (embedding) {
+        const [chunk] = await db.insert(chunks)
+          .values({ ...insertChunk, embedding })
+          .returning();
+        return chunk;
+      } else {
+        // Si no se pudo generar embedding, crear sin él
+        return this.createChunk(insertChunk);
+      }
     } catch (error) {
       console.error("Error al crear chunk con embedding:", error);
       return this.createChunk(insertChunk);
     }
   }
   
-  // Búsqueda semántica usando pgvector - VERSIÓN CORREGIDA
+  // Búsqueda semántica optimizada usando pgvector con índice HNSW
   async searchChunksByEmbedding(embedding: number[], startupId?: string, limit = 5): Promise<Chunk[]> {
     try {
       const isValidUUID = (id: string) => {
@@ -176,36 +203,43 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Invalid startupId format");
       }
       
-      // Convertir el array de embedding a un string formateado para PostgreSQL
+      // Convertir array de embedding a formato PostgreSQL
       const embeddingStr = `[${embedding.join(',')}]`;
       
-      // Usar SQL raw para construir la consulta manualmente evitando problemas de parámetros
+      // Construir consulta con filtrado previo para reducir espacio de búsqueda
       let query;
       
       if (startupId) {
+        // Consulta con índice HNSW y filtro de startup específico
         query = `
-          SELECT *, 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
+          SELECT *, 
+                 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
           FROM chunks 
-          WHERE startup_id = '${startupId}' AND embedding IS NOT NULL
-          ORDER BY similarity DESC
+          WHERE startup_id = '${startupId}' 
+            AND embedding IS NOT NULL
+          ORDER BY embedding <=> '${embeddingStr}'::vector
           LIMIT ${limit}
         `;
       } else {
+        // Consulta global con índice HNSW
         query = `
-          SELECT *, 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
+          SELECT *, 
+                 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
           FROM chunks 
           WHERE embedding IS NOT NULL
-          ORDER BY similarity DESC
+          ORDER BY embedding <=> '${embeddingStr}'::vector
           LIMIT ${limit}
         `;
       }
       
-      // Ejecutar la consulta raw sin usar parámetros
+      // Ejecutar la consulta optimizada
       const result = await db.execute(sql.raw(query));
       
       return result.rows as Chunk[];
     } catch (error) {
       console.error("Error en búsqueda vectorial:", error);
+      
+      // Fallback a búsqueda regular si falla la vectorial
       if (startupId) {
         return this.searchChunks("", startupId, limit);
       }
@@ -420,44 +454,69 @@ export class DatabaseStorage implements IStorage {
   async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
     const docs = await this.getDocumentsByStartup(startupId);
     
+    // Categorías de documentos requeridos por tipo
     const categories = {
-      'pitch-deck': { completion: 0, required: 1, uploaded: 0 },
-      'financials': { completion: 0, required: 2, uploaded: 0 },
-      'legal': { completion: 0, required: 3, uploaded: 0 },
-      'team': { completion: 0, required: 1, uploaded: 0 },
-      'market': { completion: 0, required: 2, uploaded: 0 },
-      'tech': { completion: 0, required: 2, uploaded: 0 },
-      'other': { completion: 0, required: 0, uploaded: 0 }
+      'pitch-deck': { completion: 0, required: 1, uploaded: 0, importance: 'high' },
+      'financials': { completion: 0, required: 2, uploaded: 0, importance: 'high' },
+      'legal': { completion: 0, required: 3, uploaded: 0, importance: 'medium' },
+      'tech': { completion: 0, required: 2, uploaded: 0, importance: 'high' },
+      'market': { completion: 0, required: 2, uploaded: 0, importance: 'medium' },
+      'team': { completion: 0, required: 1, uploaded: 0, importance: 'high' },
+      'other': { completion: 0, required: 0, uploaded: 0, importance: 'low' }
     };
     
+    // Contar documentos por categoría
     docs.forEach(doc => {
       if (categories[doc.type]) {
         categories[doc.type].uploaded += 1;
+        
+        // Verificar si el documento está procesado
+        if (doc.processingStatus === 'completed') {
+          categories[doc.type].processedCount = (categories[doc.type].processedCount || 0) + 1;
+        }
       }
     });
     
-    let totalRequired = 0;
-    let totalUploaded = 0;
+    // Calcular progreso por categoría
+    let totalRequiredWeight = 0;
+    let totalCompletedWeight = 0;
     
-    Object.values(categories).forEach(value => {
-      totalRequired += value.required;
-      totalUploaded += Math.min(value.uploaded, value.required);
-      
-      if (value.required > 0) {
-        value.completion = Math.min(100, Math.round((value.uploaded / value.required) * 100));
+    Object.entries(categories).forEach(([category, data]) => {
+      // Calcular porcentaje de completitud
+      if (data.required > 0) {
+        data.completion = Math.min(100, Math.round((data.uploaded / data.required) * 100));
       } else {
-        value.completion = 100;
+        data.completion = 100;
+      }
+      
+      // Convertir importancia a peso numérico
+      const importanceWeight = { high: 3, medium: 2, low: 1 }[data.importance];
+      
+      // Calcular peso total requerido
+      const categoryWeight = data.required * importanceWeight;
+      totalRequiredWeight += categoryWeight;
+      
+      // Calcular peso completado
+      const completedItems = Math.min(data.uploaded, data.required);
+      const completedWeight = completedItems * importanceWeight;
+      totalCompletedWeight += completedWeight;
+      
+      // Añadir detalles de documentos faltantes
+      if (data.uploaded < data.required) {
+        data.missingDocs = data.required - data.uploaded;
       }
     });
     
-    const overallCompletion = totalRequired > 0
-      ? Math.round((totalUploaded / totalRequired) * 100)
+    // Calcular progreso general ponderado por importancia
+    const overallCompletion = totalRequiredWeight > 0
+      ? Math.round((totalCompletedWeight / totalRequiredWeight) * 100)
       : 0;
     
     return {
       startupId,
       overallCompletion,
       categories: categories as any,
+      lastUpdated: new Date().toISOString()
     };
   }
 }
