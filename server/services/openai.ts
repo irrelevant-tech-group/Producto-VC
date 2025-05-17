@@ -1,5 +1,3 @@
-// server/services/openai.ts
-
 import OpenAI from "openai";
 import {
   AiQueryRequest,
@@ -89,105 +87,135 @@ export async function processQuery(
     `Procesando consulta: "${question}" para startupId: ${startupId || "todos"}`
   );
 
-  // Intentar generar embedding de la consulta
-  let questionEmbedding: number[] | null = null;
   try {
-    questionEmbedding = await generateEmbedding(question);
-    console.log("Embedding de consulta generado correctamente");
-  } catch (embeddingError) {
-    console.error(
-      "Error al generar embedding para la consulta, se usará búsqueda de texto:",
-      embeddingError
-    );
-  }
+    // Intentar generar embedding de la consulta
+    let questionEmbedding: number[] | null = null;
+    try {
+      questionEmbedding = await generateEmbedding(question);
+      console.log("Embedding de consulta generado correctamente");
+    } catch (embeddingError) {
+      console.error(
+        "Error al generar embedding para la consulta, se usará búsqueda de texto:",
+        embeddingError
+      );
+    }
 
-  // Recuperar chunks relevantes ya ordenados por similitud
-  let relevantChunks: any[] = [];
-  const effectiveStartupId = startupId === "all" ? undefined : startupId;
-  if (questionEmbedding) {
-    relevantChunks = await storage.searchChunksByEmbedding(
-      questionEmbedding,
-      effectiveStartupId,
-      5
-    );
-    console.log(
-      `Seleccionados ${relevantChunks.length} chunks por búsqueda vectorial`
-    );
-  } else {
-    relevantChunks = await storage.searchChunks(
-      question,
-      effectiveStartupId,
-      5
-    );
-    console.log(
-      `Seleccionados ${relevantChunks.length} chunks por búsqueda de texto`
-    );
-  }
+    // Recuperar chunks relevantes ya ordenados por similitud
+    let relevantChunks: any[] = [];
+    const effectiveStartupId = startupId === "all" ? undefined : startupId;
+    if (questionEmbedding) {
+      relevantChunks = await storage.searchChunksByEmbedding(
+        questionEmbedding,
+        effectiveStartupId,
+        5
+      );
+      console.log(
+        `Seleccionados ${relevantChunks.length} chunks por búsqueda vectorial`
+      );
+    } else {
+      relevantChunks = await storage.searchChunks(
+        question,
+        effectiveStartupId,
+        5
+      );
+      console.log(
+        `Seleccionados ${relevantChunks.length} chunks por búsqueda de texto`
+      );
+    }
 
-  if (relevantChunks.length === 0) {
-    console.log("No se encontraron chunks relevantes");
-    return {
-      answer:
-        "No tengo suficiente información para responder esa pregunta. Considera subir más documentos relacionados con el startup.",
-    };
-  }
+    if (relevantChunks.length === 0) {
+      console.log("No se encontraron chunks relevantes");
+      return {
+        answer:
+          "No tengo suficiente información para responder esa pregunta. Considera subir más documentos relacionados con el startup.",
+      };
+    }
 
-  // Construir contexto a partir de los fragments obtenidos
-  const context = relevantChunks
-    .map((chunk) => {
-      const sourceName = chunk.metadata?.source || "Documento";
-      return `--- Fragmento de "${sourceName}" ---\n${chunk.content}`;
-    })
-    .join("\n\n");
-
-  // Llamada a OpenAI Chat completions con el contexto
-  const chatResponse = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "system",
-        content:
-          "Eres un asistente analista de inversiones especializado en startups. " +
-          "Responde a las preguntas basándote únicamente en el contexto proporcionado. " +
-          "Si la información no está en el contexto o no tienes suficientes datos, indícalo claramente. " +
-          "Sé conciso, preciso y enfócate en datos e insights relevantes para inversionistas. " +
-          "Menciona la fuente de la información cuando corresponda.",
-      },
-      {
-        role: "user",
-        content: `Contexto de los documentos del startup:\n\n${context}\n\nPregunta: ${question}`,
-      },
-    ],
-    max_tokens: 800,
-  });
-
-  const answer =
-    chatResponse.choices?.[0]?.message?.content ||
-    "No se pudo generar una respuesta.";
-
-  // Preparar fuentes si se solicitaron
-  let sources;
-  if (includeSourceDocuments) {
-    sources = await Promise.all(
-      relevantChunks.map(async (chunk) => {
-        const document = await storage.getDocument(chunk.documentId);
-        return {
-          documentId: chunk.documentId,
-          documentName: document?.name || "Documento desconocido",
-          content: chunk.content,
-          relevanceScore:
-            (chunk.semanticScore as number) ||
-            (chunk.similarityScore as number) ||
-            0,
-        };
+    // Construir contexto a partir de los fragments obtenidos
+    const context = relevantChunks
+      .map((chunk) => {
+        const sourceName = chunk.metadata?.source || "Documento sin nombre";
+        const documentType = chunk.metadata?.documentType || "desconocido";
+        return `--- Fragmento de "${sourceName}" (${documentType}) ---\n${chunk.content}`;
       })
-    );
-  }
+      .join("\n\n");
+    
+    console.log(`Enviando consulta a OpenAI con ${relevantChunks.length} fragmentos de contexto`);
+    
+    // Llamada mejorada a OpenAI con sistema de prompt engineering
+    const chatResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: 
+            "Eres un asistente analista de inversiones especializado en startups. " +
+            "Tu tarea es responder preguntas sobre startups basándote ÚNICAMENTE en la información proporcionada en el contexto. " +
+            "Si la información no está presente en el contexto, indícalo claramente sin inventar hechos. " +
+            "Cuando cites información, indica la fuente específica. " +
+            "Estructura tus respuestas de manera clara, con datos concretos y análisis pertinente para decisiones de inversión. " +
+            "Utiliza lenguaje profesional pero accesible. Si detectas inconsistencias en los datos, señálalas."
+        },
+        {
+          role: "user",
+          content: `Contexto sobre el startup:\n\n${context}\n\nPregunta: ${question}`
+        }
+      ],
+      temperature: 0.3, // Menor temperatura para respuestas más precisas
+      max_tokens: 800,
+    });
 
-  return {
-    answer,
-    sources,
-  };
+    const answer =
+      chatResponse.choices?.[0]?.message?.content ||
+      "No se pudo generar una respuesta.";
+
+    // Preparar fuentes si se solicitaron
+    let sources;
+    if (includeSourceDocuments) {
+      sources = await Promise.all(
+        relevantChunks.map(async (chunk) => {
+          const document = await storage.getDocument(chunk.documentId);
+          return {
+            documentId: chunk.documentId,
+            documentName: document?.name || "Documento desconocido",
+            documentType: document?.type || "desconocido",
+            content: chunk.content,
+            relevanceScore:
+              (chunk.semanticScore as number) ||
+              (chunk.similarityScore as number) ||
+              0,
+          };
+        })
+      );
+      
+      // Ordenar por relevancia descendente
+      sources.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    }
+
+    // Registrar la consulta como actividad
+    try {
+      await storage.createActivity({
+        type: 'ai_query',
+        startupId: startupId,
+        content: question,
+        metadata: {
+          chunksUsed: relevantChunks.length,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (activityError) {
+      console.error("Error al registrar actividad:", activityError);
+      // Continuar incluso si falla el registro de actividad
+    }
+
+    return {
+      answer,
+      sources,
+    };
+  } catch (error) {
+    console.error("Error al procesar la consulta:", error);
+    throw new Error("No se pudo procesar tu consulta. Por favor, intenta de nuevo más tarde.");
+  }
 }
 
 /**

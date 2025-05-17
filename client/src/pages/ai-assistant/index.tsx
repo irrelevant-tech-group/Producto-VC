@@ -32,7 +32,9 @@ interface ChatMessage {
   sources?: Array<{
     documentId: string;
     documentName: string;
+    documentType?: string;
     content: string;
+    relevanceScore?: number;
   }>;
 }
 
@@ -52,6 +54,7 @@ export default function AiAssistant() {
       content: 'Hello! I\'m your investment analysis assistant. I can help you analyze startups and answer questions based on their documents. How can I help you today?'
     }
   ]);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -69,6 +72,60 @@ export default function AiAssistant() {
     queryKey: ['/api/startups'],
     queryFn: fetchStartups
   });
+
+  // Actualizar sugerencias cuando cambia el startup seleccionado
+  useEffect(() => {
+    if (selectedStartupId && selectedStartupId !== "all") {
+      // Sugerencias específicas según vertical y etapa del startup
+      const startup = startups?.find(s => s.id === selectedStartupId);
+      
+      if (startup) {
+        const baseQuestions = [
+          "¿Cuáles son las principales métricas financieras?",
+          "¿Quiénes conforman el equipo fundador y cuál es su experiencia?",
+          "¿Cuál es el modelo de negocio y cómo generan ingresos?"
+        ];
+        
+        // Preguntas específicas según vertical
+        const verticalQuestions: Record<string, string[]> = {
+          'fintech': [
+            "¿Cuáles son los indicadores de unit economics?",
+            "¿Qué regulaciones afectan a este startup?",
+            "¿Cuál es su estrategia de adquisición de usuarios?"
+          ],
+          'saas': [
+            "¿Cuál es el MRR y CAC actual?",
+            "¿Cómo es su pipeline de ventas?",
+            "¿Cuál es su tasa de retención de clientes?"
+          ],
+          'ai': [
+            "¿Cuál es la tecnología AI que utilizan?",
+            "¿Qué datos usan para entrenar sus modelos?",
+            "¿Cuál es su ventaja competitiva frente a otras soluciones AI?"
+          ],
+          // Otras verticales...
+        };
+        
+        // Combinar preguntas base con específicas de vertical
+        const specificQuestions = verticalQuestions[startup.vertical] || [];
+        setSuggestedQuestions([...baseQuestions, ...specificQuestions]);
+      } else {
+        // Preguntas genéricas
+        setSuggestedQuestions([
+          "¿Cuáles son las métricas clave de este startup?",
+          "¿Cuál es el equipo fundador?",
+          "¿Cuál es el mercado objetivo?"
+        ]);
+      }
+    } else {
+      // Preguntas cuando no hay startup seleccionado o es "all"
+      setSuggestedQuestions([
+        "¿Cuáles son los startups con mejor alineación a la tesis de inversión?",
+        "¿Qué startups tienen documentos financieros completos?",
+        "¿Cuáles son las startups en etapa seed?"
+      ]);
+    }
+  }, [selectedStartupId, startups]);
 
   // Handle question submission
   const handleSubmitQuestion = async (e: React.FormEvent) => {
@@ -208,12 +265,42 @@ export default function AiAssistant() {
                     
                     {message.sources && message.sources.length > 0 && showSources && (
                       <div className="mt-2 pt-2 border-t border-secondary-200">
-                        <p className="text-xs font-semibold mb-1">Sources:</p>
+                        <p className="text-xs font-semibold mb-1">Fuentes:</p>
                         <div className="space-y-2">
                           {message.sources.map((source, sIdx) => (
-                            <div key={sIdx} className="text-xs p-2 bg-white rounded border border-secondary-200">
-                              <p className="font-medium mb-1">{source.documentName}</p>
-                              <p className="text-secondary-600 line-clamp-3">{source.content}</p>
+                            <div 
+                              key={sIdx} 
+                              className="text-xs p-2 bg-white rounded border border-secondary-200 hover:border-primary-300 transition-colors"
+                            >
+                              <div className="flex justify-between items-center mb-1">
+                                <p className="font-medium">{source.documentName}</p>
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-xs capitalize"
+                                >
+                                  {source.documentType?.replace('-', ' ')}
+                                </Badge>
+                              </div>
+                              <p className="text-secondary-600 whitespace-pre-line">
+                                {source.content.length > 300 
+                                  ? `${source.content.substring(0, 300)}...` 
+                                  : source.content
+                                }
+                              </p>
+                              {source.relevanceScore !== undefined && (
+                                <div className="mt-1 flex items-center">
+                                  <span className="text-xs text-secondary-500 mr-1">Relevancia:</span>
+                                  <div className="w-24 bg-secondary-100 h-1.5 rounded-full">
+                                    <div 
+                                      className="h-1.5 bg-primary-500 rounded-full" 
+                                      style={{ width: `${Math.round(source.relevanceScore * 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className="ml-1 text-xs text-secondary-500">
+                                    {Math.round(source.relevanceScore * 100)}%
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -242,7 +329,28 @@ export default function AiAssistant() {
                   {isSubmitting ? "Thinking..." : <Send className="h-4 w-4" />}
                 </Button>
               </form>
-              <p className="text-xs text-secondary-500 mt-1">
+              
+              {/* Preguntas sugeridas */}
+              {suggestedQuestions.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-secondary-500 mb-1">Preguntas sugeridas:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedQuestions.map((q, idx) => (
+                      <Button
+                        key={idx}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => setQuestion(q)}
+                      >
+                        {q}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <p className="text-xs text-secondary-500 mt-2">
                 Try asking about startup metrics, financials, team, or market analysis
               </p>
             </div>

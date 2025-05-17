@@ -188,17 +188,40 @@ async function extractTextFromDocument(document: Document, buffer: Buffer): Prom
 }
 
 /**
- * PDF: solo pdf-parse, sin fallback a pdfjs (para evitar DOMMatrix errors)
+ * PDF: usando pdf-parse/lib/pdf-parse.js directamente para evitar problemas con paths internos
  */
 async function extractFromPDF(buffer: Buffer): Promise<string> {
   try {
-    const pdfParse = await import("pdf-parse");
+    // Importamos directamente desde el módulo principal de pdf-parse
+    const pdfParse = await import("pdf-parse/lib/pdf-parse.js");
     const data = await pdfParse.default(buffer);
     return data.text;
   } catch (err) {
-    console.error("pdf-parse falló:", err);
-    // Propagar error para usar mock content en el nivel superior
-    throw err;
+    // Si falla el método anterior, intentamos con un enfoque alternativo
+    try {
+      const pdfjsLib = await import('pdfjs-dist');
+      // Configurar worker
+      const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.js');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+      
+      // Cargar el documento PDF
+      const loadingTask = pdfjsLib.getDocument({ data: buffer });
+      const pdfDocument = await loadingTask.promise;
+      
+      let text = '';
+      // Extraer texto de cada página
+      for (let i = 1; i <= pdfDocument.numPages; i++) {
+        const page = await pdfDocument.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((item: any) => item.str).join(' ');
+        text += pageText + '\n';
+      }
+      
+      return text;
+    } catch (secondErr) {
+      console.error("Los dos métodos de extracción de PDF fallaron:", secondErr);
+      throw err; // Propagar el error original
+    }
   }
 }
 
