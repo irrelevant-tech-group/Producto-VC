@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from "multer";
 import * as z from "zod";
+import * as path from "path";
+import * as fs from "fs";
 import {
   insertStartupSchema,
   insertDocumentSchema,
@@ -158,9 +160,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.post(`${apiRouter}/documents/upload`, upload.single('file'), async (req, res) => {
+  app.post(`${apiRouter}/documents/upload`, upload.single('file'), async (req, res, next) => {
     try {
-      // Validate request
+      // Validar request
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
@@ -171,11 +173,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "startupId and type are required" });
       }
       
-      // In a real app, we would upload to S3 or similar storage
-      // For the MVP, we'll simulate successful upload
-      const fileUrl = `https://storage.example.com/${startupId}/${req.file.originalname}`;
+      // Verificar que el startup existe
+      const startup = await storage.getStartup(startupId);
+      if (!startup) {
+        return res.status(404).json({ message: `Startup with ID ${startupId} not found` });
+      }
       
-      // Create document in database
+      // Crear directorio temporal para almacenar archivos si no existe
+      const uploadDir = path.join(__dirname, '..', 'temp_uploads');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      
+      // Generar nombre de archivo único
+      const fileName = `${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
+      const filePath = path.join(uploadDir, fileName);
+      
+      // Guardar el archivo temporalmente
+      fs.writeFileSync(filePath, req.file.buffer);
+      
+      // En un entorno de producción, aquí subiríamos el archivo a S3 o similar
+      // Para el MVP, simularemos una URL de almacenamiento
+      const fileUrl = `file://${filePath}`;
+      
+      // Crear el documento en la base de datos
       const document = await storage.createDocument({
         startupId,
         name: name || req.file.originalname,
@@ -185,7 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         uploadedBy: req.body.userId ? parseInt(req.body.userId) : undefined,
       });
       
-      // Log activity
+      // Registrar la actividad
       await storage.createActivity({
         type: 'document_uploaded',
         documentId: document.id,
@@ -194,14 +215,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         content: `Uploaded document "${document.name}"`
       });
       
-      // Process document asynchronously
+      // Iniciar el procesamiento del documento en segundo plano
       processDocument(document.id).catch(error => {
         console.error(`Error processing document ${document.id}:`, error);
       });
       
+      // Retornar respuesta exitosa
       res.status(201).json(document);
+      
     } catch (error) {
-      res.status(400).json({ message: error.message });
+      // Limpiar archivos temporales en caso de error
+      if (req.file) {
+        try {
+          const uploadDir = path.join(__dirname, '..', 'temp_uploads');
+          const files = fs.readdirSync(uploadDir).filter(file => 
+            file.startsWith(Date.now().toString().substring(0, 8))
+          );
+          
+          for (const file of files) {
+            fs.unlinkSync(path.join(uploadDir, file));
+          }
+        } catch (cleanupError) {
+          console.error("Error cleaning up temporary files:", cleanupError);
+        }
+      }
+      
+      next(error);
     }
   });
   
