@@ -165,7 +165,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
   
-  // Búsqueda semántica usando pgvector
+  // Búsqueda semántica usando pgvector - VERSIÓN CORREGIDA
   async searchChunksByEmbedding(embedding: number[], startupId?: string, limit = 5): Promise<Chunk[]> {
     try {
       const isValidUUID = (id: string) => {
@@ -176,28 +176,32 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Invalid startupId format");
       }
       
-      let sqlQuery;
-      let result;
+      // Convertir el array de embedding a un string formateado para PostgreSQL
+      const embeddingStr = `[${embedding.join(',')}]`;
+      
+      // Usar SQL raw para construir la consulta manualmente evitando problemas de parámetros
+      let query;
       
       if (startupId) {
-        sqlQuery = `
-          SELECT *, 1 - (embedding <=> $1) as similarity
+        query = `
+          SELECT *, 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
           FROM chunks 
-          WHERE startup_id = $2 AND embedding IS NOT NULL
+          WHERE startup_id = '${startupId}' AND embedding IS NOT NULL
           ORDER BY similarity DESC
-          LIMIT $3
+          LIMIT ${limit}
         `;
-        result = await db.execute(sql.raw(sqlQuery), [embedding, startupId, limit]);
       } else {
-        sqlQuery = `
-          SELECT *, 1 - (embedding <=> $1) as similarity
+        query = `
+          SELECT *, 1 - (embedding <=> '${embeddingStr}'::vector) as similarity
           FROM chunks 
           WHERE embedding IS NOT NULL
           ORDER BY similarity DESC
-          LIMIT $2
+          LIMIT ${limit}
         `;
-        result = await db.execute(sql.raw(sqlQuery), [embedding, limit]);
       }
+      
+      // Ejecutar la consulta raw sin usar parámetros
+      const result = await db.execute(sql.raw(query));
       
       return result.rows as Chunk[];
     } catch (error) {

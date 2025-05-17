@@ -30,6 +30,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       model: "text-embedding-3-large",
       input: truncatedText,
       encoding_format: "float", // Asegura que obtenemos un vector de números flotantes
+      dimensions: 1536 // Explicitamente solicitamos 1536 dimensiones para coincidir con el schema
     });
 
     if (!response.data || response.data.length === 0) {
