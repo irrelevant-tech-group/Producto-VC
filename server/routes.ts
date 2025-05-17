@@ -7,10 +7,13 @@ import multer from "multer";
 import * as z from "zod";
 import * as path from "path";
 import * as fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import { fileURLToPath } from "url";
+import { dirname as pathDirname } from "path";
 import {
   insertStartupSchema,
   insertDocumentSchema,
-  insertUserSchema,
+  insertUserSchema
 } from "@shared/schema";
 import {
   processQuery,
@@ -22,8 +25,6 @@ import {
   updateMemoSections,
   exportMemo
 } from "./services/memoGenerator";
-import { fileURLToPath } from "url";
-import { dirname as pathDirname } from "path";
 
 // ESM __dirname polyfill
 const __filename = fileURLToPath(import.meta.url);
@@ -52,20 +53,15 @@ function validateBody<T extends z.ZodTypeAny>(
 export async function registerRoutes(app: Express): Promise<Server> {
   // API prefix
   const apiRouter = '/api';
-  
+
   // Authentication routes
   app.post(`${apiRouter}/auth/login`, async (req: Request, res: Response) => {
     try {
       const { username, password } = req.body;
-      
-      // Basic auth for MVP
       const user = await storage.getUserByUsername(username);
-      
       if (!user || user.password !== password) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
-      
-      // In a real app, we would use proper authentication with JWT or sessions
       res.json({
         id: user.id,
         username: user.username,
@@ -76,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Dashboard metrics
   app.get(`${apiRouter}/dashboard/metrics`, async (req: Request, res: Response) => {
     try {
@@ -86,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.get(`${apiRouter}/dashboard/activities`, async (req: Request, res: Response) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
@@ -96,7 +92,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Startup routes
   app.get(`${apiRouter}/startups`, async (req: Request, res: Response) => {
     try {
@@ -106,40 +102,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.get(`${apiRouter}/startups/:id`, async (req: Request, res: Response) => {
     try {
       const startup = await storage.getStartup(req.params.id);
-      
       if (!startup) {
         return res.status(404).json({ message: "Startup not found" });
       }
-      
       res.json(startup);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.post(`${apiRouter}/startups`, async (req: Request, res: Response) => {
     try {
       const data = validateBody(insertStartupSchema, req.body);
       const startup = await storage.createStartup(data);
-      
-      // Log activity
       await storage.createActivity({
         type: 'startup_created',
         startupId: startup.id,
         userId: req.body.userId,
         content: `New startup "${startup.name}" added`
       });
-      
       res.status(201).json(startup);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   });
-  
+
   app.get(`${apiRouter}/startups/:id/due-diligence`, async (req: Request, res: Response) => {
     try {
       const progress = await storage.getDueDiligenceProgress(req.params.id);
@@ -148,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.get(`${apiRouter}/startups/:id/alignment`, async (req: Request, res: Response) => {
     try {
       const alignmentScore = await analyzeStartupAlignment(req.params.id);
@@ -157,7 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Document routes
   app.get(`${apiRouter}/startups/:id/documents`, async (req: Request, res: Response) => {
     try {
@@ -167,7 +158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.post(
     `${apiRouter}/documents/upload`,
     upload.single('file'),
@@ -177,37 +168,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!req.file) {
           return res.status(400).json({ message: "No file uploaded" });
         }
-        
+
         const { startupId, type, name } = req.body;
-        
         if (!startupId || !type) {
           return res.status(400).json({ message: "startupId and type are required" });
         }
-        
-        // Verificar que el startup existe
+
         const startup = await storage.getStartup(startupId);
         if (!startup) {
           return res.status(404).json({ message: `Startup with ID ${startupId} not found` });
         }
-        
-        // Crear directorio temporal para almacenar archivos si no existe
+
+        // Crear directorio temporal si no existe
         const uploadDir = path.join(__dirname, '..', 'temp_uploads');
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
-        
-        // Generar nombre de archivo único
-        const fileName = `${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
+
+        // Generar nombre único con UUID y extensión
+        const fileExt = path.extname(req.file.originalname);
+        const fileName = `${Date.now()}-${uuidv4()}${fileExt}`;
         const filePath = path.join(uploadDir, fileName);
-        
-        // Guardar el archivo temporalmente
+
+        // Guardar archivo
         fs.writeFileSync(filePath, req.file.buffer);
-        
-        // En un entorno de producción, aquí subiríamos el archivo a S3 o similar
-        // Para el MVP, simularemos una URL de almacenamiento
+
+        // URL simulada
         const fileUrl = `file://${filePath}`;
-        
-        // Crear el documento en la base de datos
+
+        // Crear documento con metadata
         const document = await storage.createDocument({
           startupId,
           name: name || req.file.originalname,
@@ -215,89 +204,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileUrl,
           fileType: req.file.mimetype,
           uploadedBy: req.body.userId ? parseInt(req.body.userId) : undefined,
+          metadata: {
+            originalName: req.file.originalname,
+            size: req.file.size,
+            uploadedAt: new Date().toISOString()
+          }
         });
-        
-        // Registrar la actividad
+
+        // Log actividad de subida
         await storage.createActivity({
           type: 'document_uploaded',
           documentId: document.id,
           startupId,
           userId: req.body.userId ? parseInt(req.body.userId) : undefined,
-          content: `Uploaded document "${document.name}"`
+          content: `Documento "${document.name}" subido`,
+          metadata: {
+            fileType: req.file.mimetype,
+            fileSize: req.file.size
+          }
         });
-        
-        // Iniciar el procesamiento del documento en segundo plano
+
+        // Iniciar procesamiento en background
         processDocument(document.id).catch(error => {
           console.error(`Error processing document ${document.id}:`, error);
         });
-        
-        // Retornar respuesta exitosa
-        res.status(201).json(document);
-        
+
+        // Respuesta inmediata
+        res.status(201).json({
+          ...document,
+          message: "Documento subido. El procesamiento iniciará en breve."
+        });
       } catch (error: any) {
-        // Limpiar archivos temporales en caso de error
+        // Limpieza en caso de error
         if (req.file) {
           try {
             const uploadDir = path.join(__dirname, '..', 'temp_uploads');
-            const files = fs.readdirSync(uploadDir).filter(file =>
-              file.startsWith(Date.now().toString().substring(0, 8))
-            );
-            
-            for (const file of files) {
-              fs.unlinkSync(path.join(uploadDir, file));
+            const tempFiles = fs
+              .readdirSync(uploadDir)
+              .filter(f => f.startsWith(Date.now().toString().substring(0, 8)));
+            for (const f of tempFiles) {
+              fs.unlinkSync(path.join(uploadDir, f));
             }
           } catch (cleanupError) {
             console.error("Error cleaning up temporary files:", cleanupError);
           }
         }
-        
         next(error);
       }
     }
   );
-  
+
   // AI Query route
   app.post(`${apiRouter}/ai/query`, async (req: Request, res: Response) => {
     try {
       const { startupId, question, includeSourceDocuments } = req.body;
-      
       if (!question) {
         return res.status(400).json({ message: "Question is required" });
       }
-      
-      // Validar que startupId es un UUID válido si está presente
-      const isValidUUID = (id: string) => {
-        return id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      };
-      
-      // Log the query activity before processing (sólo si el ID es válido o undefined)
+      const isValidUUID = (id: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       const validStartupId = startupId && isValidUUID(startupId) ? startupId : null;
-      
       try {
         await storage.createActivity({
           type: 'ai_query',
           startupId: validStartupId,
           userId: req.body.userId || null,
-          content: question,
+          content: question
         });
-      } catch (activityError) {
-        console.error("Error logging activity:", activityError);
-        // Continuamos aunque falle el registro de actividad
+      } catch {
+        // ignore
       }
-      
-      const response = await processQuery({
-        startupId: validStartupId,
-        question,
-        includeSourceDocuments
-      });
-      
+      const response = await processQuery({ startupId: validStartupId, question, includeSourceDocuments });
       res.json(response);
     } catch (error: any) {
       console.error("Error processing AI query:", error);
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Memo routes
   app.get(`${apiRouter}/startups/:id/memos`, async (req: Request, res: Response) => {
     try {
@@ -307,46 +291,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.get(`${apiRouter}/memos/:id`, async (req: Request, res: Response) => {
     try {
       const memo = await storage.getMemo(req.params.id);
-      
       if (!memo) {
         return res.status(404).json({ message: "Memo not found" });
       }
-      
       res.json(memo);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.post(`${apiRouter}/startups/:id/memos/generate`, async (req: Request, res: Response) => {
     try {
       const startupId = req.params.id;
       const { sections } = req.body;
-      
       const memo = await generateMemo(startupId, sections);
       res.status(201).json(memo);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.patch(`${apiRouter}/memos/:id`, async (req: Request, res: Response) => {
     try {
       const memoId = req.params.id;
       const { sections, status } = req.body;
-      
       if (sections) {
-        // Update specific sections
-        const updatedMemo = await updateMemoSections(memoId, sections);
-        return res.json(updatedMemo);
+        const updated = await updateMemoSections(memoId, sections);
+        return res.json(updated);
       } else if (status) {
-        // Update memo status
-        const updatedMemo = await storage.updateMemo(memoId, { status });
-        return res.json(updatedMemo);
+        const updated = await storage.updateMemo(memoId, { status });
+        return res.json(updated);
       } else {
         return res.status(400).json({ message: "No updates specified" });
       }
@@ -354,16 +332,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   app.post(`${apiRouter}/memos/:id/export/:format`, async (req: Request, res: Response) => {
     try {
       const memoId = req.params.id;
       const format = req.params.format as 'pdf' | 'docx' | 'slides';
-      
       if (!['pdf', 'docx', 'slides'].includes(format)) {
         return res.status(400).json({ message: "Invalid format. Must be pdf, docx, or slides" });
       }
-      
       const url = await exportMemo(memoId, format);
       res.json({ url });
     } catch (error: any) {
