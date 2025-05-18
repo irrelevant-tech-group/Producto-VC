@@ -6,6 +6,7 @@ import { DocumentProcessingResult } from "@shared/types";
 import OpenAI from "openai";
 import { analyzeStartupAlignment, generateEmbedding } from "./openai";
 import * as fs from "fs";
+import Tesseract from 'tesseract.js';
 
 // Usando gpt-4o como modelo actual según la nota del código original
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -102,28 +103,39 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     buffer = Buffer.from(simulated, "utf-8");
   }
 
-  // Extraer texto
-  console.log(`Extrayendo texto de ${document.fileType}`);
+  // Verificar si es una imagen para OCR
   let content: string;
-  try {
-    content = await extractTextFromDocument(document, buffer);
-  } catch (err) {
-    console.error("Error extrayendo texto, usando contenido simulado:", err);
-    content = generateMockContent(document);
+  if (document.fileType.startsWith('image/')) {
+    console.log(`Detectada imagen, aplicando OCR a ${document.name}`);
+    content = await extractTextFromImage(buffer);
+  } else {
+    // Extraer texto
+    console.log(`Extrayendo texto de ${document.fileType}`);
+    try {
+      content = await extractTextFromDocument(document, buffer);
+    } catch (err) {
+      console.error("Error extrayendo texto, usando contenido simulado:", err);
+      content = generateMockContent(document);
+    }
   }
+
   if (!content.trim()) {
     throw new Error("No se pudo extraer texto del documento");
   }
   console.log(`Texto extraído (${content.length} caracteres)`);
 
+  // Limpiar texto
+  const cleanedText = cleanText(content);
+  console.log(`Texto limpiado (${cleanedText.length} caracteres)`);
+
   // Chunking semántico mejorado
-  const chunks = splitIntoChunks(content);
-  console.log(`Dividido en ${chunks.length} chunks`);
+  const chunks = semanticChunking(cleanedText);
+  console.log(`Dividido en ${chunks.length} chunks semánticos`);
 
   // Extracción de entidades del contenido completo
   let entities = {};
   try {
-    entities = await extractEntities(content);
+    entities = await extractEntities(cleanedText);
     console.log("Entidades extraídas:", entities);
   } catch (error) {
     console.error("Error en extracción de entidades:", error);
@@ -135,7 +147,7 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     extractedAt: new Date().toISOString(),
     fileSize: buffer.length,
     processingTime,
-    contentSummary: content.substring(0, 200) + "...",
+    contentSummary: cleanedText.substring(0, 200) + "...",
     extractedEntities: entities
   };
 
@@ -158,7 +170,10 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
 
     try {
       // Generar embedding para el chunk usando el servicio de OpenAI
-      await storage.createChunkWithEmbedding(chunkRecord, chunkText);
+      const embedding = await generateEmbedding(chunkText);
+      
+      // Insertar chunk con su embedding
+      await storage.createChunkWithEmbedding(chunkRecord, embedding);
     } catch (err: any) {
       console.error(`Error embedding chunk ${i}:`, err);
       await storage.createChunk({
@@ -193,8 +208,11 @@ async function extractTextFromDocument(document: Document, buffer: Buffer): Prom
     case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
       return extractFromPPTX(buffer);
     case "text/plain":
+      return extractFromText(buffer);
     case "text/csv":
-      return buffer.toString("utf-8");
+      return extractFromCSV(buffer);
+    case "text/markdown":
+      return extractFromMarkdown(buffer);
     default:
       console.log(`Tipo no soportado ${document.fileType}, tratando como texto plano`);
       return buffer.toString("utf-8");
@@ -273,19 +291,14 @@ async function extractFromXLSX(buffer: Buffer): Promise<string> {
       const sheet = workbook.Sheets[name];
       text += `Hoja: ${name}\n`;
       
-      // Convertir a formato JSON para mejor procesamiento
-      const json = XLSX.utils.sheet_to_json(sheet, { 
-        header: 1,
-        raw: false,  // Convertir a strings para mantener consistencia
-        dateNF: 'yyyy-mm-dd' // Formato para fechas
+      // Convertir cada hoja a CSV para mejor extracción de texto
+      const csv = XLSX.utils.sheet_to_csv(sheet, { 
+        blankrows: false,
+        defval: "", 
+        rawNumbers: false
       });
       
-      json.forEach((row: any) => {
-        if (row && row.length) {
-          text += row.join(", ") + "\n";
-        }
-      });
-      text += "\n";
+      text += csv + "\n\n";
     });
     
     return text;
@@ -296,38 +309,63 @@ async function extractFromXLSX(buffer: Buffer): Promise<string> {
 }
 
 /**
+ * Extracción de texto de CSV
+ */
+async function extractFromCSV(buffer: Buffer): Promise<string> {
+  try {
+    const Papa = await import("papaparse");
+    const csvText = buffer.toString('utf-8');
+    
+    const result = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+    });
+    
+    let text = "";
+    // Añadir encabezados
+    if (result.meta && result.meta.fields) {
+      text += result.meta.fields.join(", ") + "\n";
+    }
+    
+    // Añadir datos
+    result.data.forEach((row: any) => {
+      const values = Object.values(row);
+      text += values.join(", ") + "\n";
+    });
+    
+    return text;
+  } catch (err) {
+    console.error("Error en extracción CSV:", err);
+    return buffer.toString('utf-8');  // Fallback a texto plano
+  }
+}
+
+/**
  * Extracción de PPTX mejorada
  */
 async function extractFromPPTX(buffer: Buffer): Promise<string> {
   try {
-    // Intentamos usar pptx-parser si está disponible
+    // Intentamos usar pptx-text-extract si está disponible
     try {
-      const pptxParser = await import("pptx-parser");
-      const result = await pptxParser.default.extract(buffer);
-      let text = "";
+      const pptxExtract = await import("pptx-text-extract");
+      const result = await pptxExtract.default(buffer);
       
-      // Procesar diapositivas y su contenido
-      if (result && result.slides) {
-        result.slides.forEach((slide: any, index: number) => {
-          text += `Diapositiva ${index + 1}:\n`;
-          
-          // Extraer texto de los elementos
-          if (slide.elements) {
-            slide.elements.forEach((element: any) => {
-              if (element.type === 'text' && element.text) {
-                text += element.text + "\n";
-              }
-            });
-          }
-          
-          text += "\n";
-        });
+      if (Array.isArray(result)) {
+        return result.join("\n\n");
       }
       
-      return text;
+      return result.toString();
     } catch (importErr) {
-      // Si no podemos importar pptx-parser, usamos un método alternativo
-      console.warn("pptx-parser no disponible, usando extracción alternativa:", importErr);
+      console.warn("pptx-text-extract no disponible, usando extracción alternativa:", importErr);
+      
+      // Intento alternativo con mammoth (si aplica)
+      try {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+      } catch (mammothErr) {
+        console.warn("Mammoth no pudo procesar PPTX, usando método zip:", mammothErr);
+      }
       
       // Intento alternativo: PPTX como archivo ZIP con XMLs
       const JSZip = await import("jszip");
@@ -342,7 +380,7 @@ async function extractFromPPTX(buffer: Buffer): Promise<string> {
       for (const slideFile of slideFiles) {
         const slideXml = await content.files[slideFile].async('text');
         
-        // Extraer texto usando regex simple (para una implementación real sería mejor usar un parser XML)
+        // Extraer texto usando regex simple
         const textMatches = slideXml.match(/<a:t>([^<]+)<\/a:t>/g);
         if (textMatches) {
           const slideNumber = slideFile.match(/slide(\d+)\.xml/)?.[1] || '?';
@@ -368,6 +406,43 @@ async function extractFromPPTX(buffer: Buffer): Promise<string> {
 }
 
 /**
+ * Extracción de texto plano
+ */
+async function extractFromText(buffer: Buffer): Promise<string> {
+  return buffer.toString("utf-8");
+}
+
+/**
+ * Extracción de texto Markdown
+ */
+async function extractFromMarkdown(buffer: Buffer): Promise<string> {
+  // Para markdown, simplemente devolvemos el texto plano
+  // Opcionalmente podríamos usar una librería para convertir MD a texto plano
+  return buffer.toString("utf-8");
+}
+
+/**
+ * Extracción de texto mediante OCR para imágenes
+ */
+async function extractTextFromImage(buffer: Buffer): Promise<string> {
+  try {
+    const result = await Tesseract.recognize(buffer, 'spa+eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          console.log(`OCR progreso: ${m.progress}`);
+        }
+      }
+    });
+    
+    console.log(`OCR completado con confianza: ${result.data.confidence}%`);
+    return result.data.text;
+  } catch (err) {
+    console.error("Error en OCR de imagen:", err);
+    throw new Error("Error al extraer texto mediante OCR de la imagen.");
+  }
+}
+
+/**
  * Contenido simulado si no hay URL de archivo
  */
 function generateMockContent(document: Document): string {
@@ -375,53 +450,140 @@ function generateMockContent(document: Document): string {
 }
 
 /**
- * Divide en chunks semánticos mejorado para manejar mejor párrafos largos y preservar contexto
+ * Limpia y normaliza texto para mejor procesamiento
  */
-function splitIntoChunks(content: string, maxChunkSize = 1000, overlapSize = 100): string[] {
-  // Dividir por párrafos primero
-  const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 0);
+function cleanText(text: string): string {
+  // Normalizar unicode
+  let cleaned = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  // Eliminar caracteres especiales y símbolos que no aportan valor
+  cleaned = cleaned.replace(/[^\w\s.,;:¿?¡!()[\]{}%$#@&*+-]/g, " ");
+  
+  // Eliminar espacios múltiples, tabulaciones y saltos de línea excesivos
+  cleaned = cleaned.replace(/\s+/g, " ");
+  
+  // Eliminar espacios al inicio y final
+  cleaned = cleaned.trim();
+  
+  return cleaned;
+}
+
+/**
+ * Divide en chunks semánticos implementando nuestro propio TextSplitter
+ */
+function semanticChunking(text: string, maxChunkSize = 1000, overlapSize = 200): string[] {
+  // Implementamos nuestro propio chunking semántico sin dependencias externas
+  return intelligentSplitIntoChunks(text, maxChunkSize, overlapSize);
+}
+
+/**
+ * División inteligente de texto en chunks semánticos
+ * Implementación mejorada sin dependencias externas
+ */
+function intelligentSplitIntoChunks(content: string, maxChunkSize = 1000, overlapSize = 200): string[] {
+  if (!content || content.trim().length === 0) {
+    return [];
+  }
+
   const chunks: string[] = [];
+  
+  // Primero dividir por secciones principales (dobles saltos de línea)
+  const sections = content.split(/\n\s*\n/).filter(section => section.trim().length > 0);
+  
   let currentChunk = "";
   
-  for (const paragraph of paragraphs) {
-    // Si el párrafo por sí solo es mayor que el tamaño máximo, subdividirlo
-    if (paragraph.length > maxChunkSize) {
-      // Si hay contenido acumulado, guardarlo como chunk
-      if (currentChunk) {
+  for (const section of sections) {
+    const sectionText = section.trim();
+    
+    // Si la sección es muy larga, dividirla por párrafos o oraciones
+    if (sectionText.length > maxChunkSize) {
+      // Guardar chunk actual si existe
+      if (currentChunk.trim()) {
         chunks.push(currentChunk.trim());
-        currentChunk = "";
+        currentChunk = getOverlap(currentChunk, overlapSize);
       }
       
-      // Dividir párrafo grande en oraciones
-      const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-      let sentenceChunk = "";
+      // Procesar sección larga
+      const subChunks = processLongSection(sectionText, maxChunkSize, overlapSize);
       
-      for (const sentence of sentences) {
-        if (sentenceChunk.length + sentence.length > maxChunkSize) {
-          chunks.push(sentenceChunk.trim());
-          // Agregar overlap para mantener contexto
-          sentenceChunk = getLastNChars(sentenceChunk, overlapSize) + sentence;
+      // Añadir los sub-chunks
+      for (let i = 0; i < subChunks.length; i++) {
+        if (i === 0 && currentChunk.trim()) {
+          // Para el primer sub-chunk, añadir overlap del chunk anterior
+          chunks.push((currentChunk + " " + subChunks[i]).trim());
         } else {
-          sentenceChunk += (sentenceChunk ? " " : "") + sentence;
+          chunks.push(subChunks[i]);
         }
       }
       
-      if (sentenceChunk.trim()) {
-        chunks.push(sentenceChunk.trim());
+      // Preparar overlap para el siguiente chunk
+      currentChunk = getOverlap(subChunks[subChunks.length - 1], overlapSize);
+      
+    } else if (currentChunk.length + sectionText.length + 2 > maxChunkSize) {
+      // Si añadir esta sección excede el límite, finalizar chunk actual
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
       }
-    } else if (currentChunk.length + paragraph.length > maxChunkSize) {
-      // Si añadir este párrafo excede el límite, guardar el chunk actual y empezar uno nuevo
-      chunks.push(currentChunk.trim());
-      // Agregar overlap desde el final del chunk anterior
-      currentChunk = getLastNChars(currentChunk, overlapSize) + paragraph;
+      
+      // Empezar nuevo chunk con overlap
+      currentChunk = getOverlap(currentChunk, overlapSize) + "\n\n" + sectionText;
+      
     } else {
-      // Añadir el párrafo al chunk actual
-      if (currentChunk) currentChunk += "\n\n";
-      currentChunk += paragraph;
+      // Añadir sección al chunk actual
+      if (currentChunk.trim()) {
+        currentChunk += "\n\n" + sectionText;
+      } else {
+        currentChunk = sectionText;
+      }
     }
   }
   
-  // Añadir el último chunk si queda contenido
+  // Añadir el último chunk si no está vacío
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  // Filtrar chunks muy pequeños y combinarlos si es necesario
+  return optimizeChunks(chunks, maxChunkSize * 0.1, maxChunkSize); // Mínimo 10% del tamaño máximo
+}
+
+/**
+ * Procesa secciones largas dividiéndolas en chunks apropiados
+ */
+function processLongSection(section: string, maxChunkSize: number, overlapSize: number): string[] {
+  const chunks: string[] = [];
+  
+  // Intentar dividir por oraciones
+  const sentences = section.match(/[^.!?]+[.!?]+\s*/g) || [section];
+  
+  let currentChunk = "";
+  
+  for (const sentence of sentences) {
+    const sentenceText = sentence.trim();
+    
+    if (currentChunk.length + sentenceText.length > maxChunkSize) {
+      // Finalizar chunk actual
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+      }
+      
+      // Si la oración en sí es muy larga, dividirla por comas o espacios
+      if (sentenceText.length > maxChunkSize) {
+        const subParts = splitLongSentence(sentenceText, maxChunkSize);
+        chunks.push(...subParts);
+        currentChunk = getOverlap(subParts[subParts.length - 1], overlapSize);
+      } else {
+        // Empezar nuevo chunk con overlap
+        const overlap = chunks.length > 0 ? getOverlap(chunks[chunks.length - 1], overlapSize) : "";
+        currentChunk = overlap ? overlap + " " + sentenceText : sentenceText;
+      }
+    } else {
+      // Añadir oración al chunk actual
+      currentChunk += (currentChunk ? " " : "") + sentenceText;
+    }
+  }
+  
+  // Añadir último chunk
   if (currentChunk.trim()) {
     chunks.push(currentChunk.trim());
   }
@@ -430,22 +592,113 @@ function splitIntoChunks(content: string, maxChunkSize = 1000, overlapSize = 100
 }
 
 /**
- * Función helper para obtener los últimos N caracteres con sentido semántico
+ * Divide oraciones muy largas de manera inteligente
  */
-function getLastNChars(text: string, n: number): string {
-  if (!text || n <= 0) return "";
-  if (text.length <= n) return text;
+function splitLongSentence(sentence: string, maxChunkSize: number): string[] {
+  const chunks: string[] = [];
   
-  // Intentar cortar en un espacio para no romper palabras
-  const lastPart = text.slice(-n * 2); // Tomar un poco más para encontrar un buen punto de corte
-  const spaceIndex = lastPart.indexOf(' ', lastPart.length - n);
+  // Intentar dividir por comas primero
+  const parts = sentence.split(/,\s*/);
   
-  if (spaceIndex >= 0) {
-    return lastPart.slice(spaceIndex + 1);
+  if (parts.length > 1) {
+    let currentChunk = "";
+    
+    for (const part of parts) {
+      if (currentChunk.length + part.length + 2 > maxChunkSize) {
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+        currentChunk = part;
+      } else {
+        currentChunk += (currentChunk ? ", " : "") + part;
+      }
+    }
+    
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+  } else {
+    // Si no hay comas, dividir por espacios como último recurso
+    const words = sentence.split(/\s+/);
+    let currentChunk = "";
+    
+    for (const word of words) {
+      if (currentChunk.length + word.length + 1 > maxChunkSize) {
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+        currentChunk = word;
+      } else {
+        currentChunk += (currentChunk ? " " : "") + word;
+      }
+    }
+    
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
   }
   
-  // Si no hay un buen punto de corte, simplemente tomar los últimos n caracteres
-  return text.slice(-n);
+  return chunks;
+}
+
+/**
+ * Obtiene el overlap del final de un texto para mantener contexto
+ */
+function getOverlap(text: string, overlapSize: number): string {
+  if (!text || overlapSize <= 0) return "";
+  if (text.length <= overlapSize) return text;
+  
+  // Intentar cortar en una oración completa
+  const lastPart = text.slice(-overlapSize * 2);
+  const sentenceEnd = lastPart.search(/[.!?]\s+/);
+  
+  if (sentenceEnd >= 0 && sentenceEnd < overlapSize * 1.5) {
+    return lastPart.slice(sentenceEnd + 2).trim();
+  }
+  
+  // Si no hay oración completa, cortar en un espacio
+  const shortPart = text.slice(-overlapSize * 1.5);
+  const spaceIndex = shortPart.indexOf(' ', shortPart.length - overlapSize);
+  
+  if (spaceIndex >= 0) {
+    return shortPart.slice(spaceIndex + 1).trim();
+  }
+  
+  // Como último recurso, tomar los últimos caracteres
+  return text.slice(-overlapSize).trim();
+}
+
+/**
+ * Optimiza la lista de chunks combinando los muy pequeños
+ */
+function optimizeChunks(chunks: string[], minSize: number, maxSize: number): string[] {
+  const optimized: string[] = [];
+  let i = 0;
+  
+  while (i < chunks.length) {
+    let currentChunk = chunks[i];
+    
+    // Si el chunk es muy pequeño, intentar combinarlo con el siguiente
+    while (i + 1 < chunks.length && 
+           currentChunk.length < minSize &&
+           currentChunk.length + chunks[i + 1].length <= maxSize) {
+      currentChunk += "\n\n" + chunks[i + 1];
+      i++;
+    }
+    
+    optimized.push(currentChunk);
+    i++;
+  }
+  
+  return optimized;
+}
+
+/**
+ * Función helper para obtener los últimos N caracteres con sentido semántico
+ * (mantenida para compatibilidad)
+ */
+function getLastNChars(text: string, n: number): string {
+  return getOverlap(text, n);
 }
 
 /**
@@ -474,15 +727,16 @@ async function extractEntities(text: string): Promise<any> {
             
             Utiliza un formato como:
             {
-              "people": [{"name": "Nombre", "role": "Cargo"}],
-              "organizations": [{"name": "Nombre", "type": "competitor|partner|investor|customer"}],
-              "metrics": [{"name": "Métrica", "value": "Valor", "unit": "Unidad", "context": "Contexto adicional"}],
+              "people": [{"name": "Nombre", "role": "Cargo", "confidence": 0.9}],
+              "organizations": [{"name": "Nombre", "type": "competitor|partner|investor|customer", "confidence": 0.9}],
+              "metrics": [{"name": "Métrica", "value": "Valor", "unit": "Unidad", "context": "Contexto adicional", "confidence": 0.9}],
               "keypoints": ["Punto 1", "Punto 2"],
-              "products": [{"name": "Nombre", "description": "Descripción breve"}],
-              "technologies": ["Tecnología 1", "Tecnología 2"]
+              "products": [{"name": "Nombre", "description": "Descripción breve", "confidence": 0.9}],
+              "technologies": [{"name": "Tecnología", "description": "Uso en el startup", "confidence": 0.9}]
             }
             
             Sé específico y conciso. Si no encuentras información en alguna categoría, devuelve un array vacío.
+            Incluye un valor de confianza (confidence) entre 0 y 1 para cada entidad, donde 1 significa máxima certeza.
           `
         },
         {

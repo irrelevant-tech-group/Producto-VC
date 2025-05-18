@@ -19,7 +19,8 @@ import {
   Clock,
   ExternalLink,
   Filter,
-  ChevronDown
+  ChevronDown,
+  DollarSign
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -43,6 +44,7 @@ interface Startup {
   completionPercentage: number;
   alignmentScore?: number;
   amountSought?: number;
+  currency?: string;
   founderCount?: number;
   fundingRound?: string;
 }
@@ -76,6 +78,8 @@ const ActiveStartups: React.FC = () => {
         return a.name.localeCompare(b.name);
       case 'completionPercentage':
         return b.completionPercentage - a.completionPercentage;
+      case 'amountSought':
+        return (b.amountSought || 0) - (a.amountSought || 0);
       case 'lastUpdated':
       default:
         return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
@@ -115,8 +119,9 @@ const ActiveStartups: React.FC = () => {
     const date = new Date(dateString);
     const now = new Date();
     
-    // If it's today or yesterday, show relative time
-    if (formatDistanceToNow(date, { addSuffix: true }).includes('day')) {
+    // If within last 24 hours, show relative time
+    const diffInHours = Math.abs(now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    if (diffInHours < 24) {
       return formatDistanceToNow(date, { addSuffix: true });
     }
     
@@ -124,19 +129,24 @@ const ActiveStartups: React.FC = () => {
     return format(date, 'MMM d, yyyy');
   };
 
-  // Format amount with appropriate suffix (K, M, B)
-  const formatAmount = (amount?: number) => {
+  // NUEVA - Format amount with appropriate suffix and currency
+  const formatAmount = (amount?: number, currency?: string) => {
     if (!amount) return '';
     
+    const currencySymbol = currency === 'USD' ? '$' : 
+                         currency === 'MXN' ? 'MX$' : 
+                         currency === 'COP' ? 'COL$' : 
+                         currency === 'BRL' ? 'R$' : '$';
+    
     if (amount >= 1000000000) {
-      return `$${(amount / 1000000000).toFixed(1)}B`;
+      return `${currencySymbol}${(amount / 1000000000).toFixed(1)}B`;
     } else if (amount >= 1000000) {
-      return `$${(amount / 1000000).toFixed(1)}M`;
+      return `${currencySymbol}${(amount / 1000000).toFixed(1)}M`;
     } else if (amount >= 1000) {
-      return `$${(amount / 1000).toFixed(0)}K`;
+      return `${currencySymbol}${(amount / 1000).toFixed(0)}K`;
     }
     
-    return `$${amount}`;
+    return `${currencySymbol}${amount.toLocaleString()}`;
   };
 
   return (
@@ -188,6 +198,17 @@ const ActiveStartups: React.FC = () => {
               <FileText className="h-3.5 w-3.5 mr-2" />
               <span>Most Complete</span>
               {sortBy === 'completionPercentage' && (
+                <span className="ml-auto text-blue-600">✓</span>
+              )}
+            </DropdownMenuItem>
+            {/* NUEVA - Opción de sorting por funding */}
+            <DropdownMenuItem 
+              className="text-xs cursor-pointer"
+              onClick={() => setSortBy('amountSought')}
+            >
+              <DollarSign className="h-3.5 w-3.5 mr-2" />
+              <span>Highest Funding</span>
+              {sortBy === 'amountSought' && (
                 <span className="ml-auto text-blue-600">✓</span>
               )}
             </DropdownMenuItem>
@@ -289,10 +310,13 @@ const ActiveStartups: React.FC = () => {
                                   <span className="capitalize">{startup.vertical}</span>
                                   <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
                                   <span>{startup.stage}</span>
+                                  {/* ACTUALIZADA - Mostrar amount sought con currency */}
                                   {startup.amountSought && (
                                     <>
                                       <span className="inline-block h-1 w-1 rounded-full bg-slate-300"></span>
-                                      <span className="font-medium text-slate-700">{formatAmount(startup.amountSought)}</span>
+                                      <span className="font-medium text-slate-700">
+                                        {formatAmount(startup.amountSought, startup.currency)}
+                                      </span>
                                     </>
                                   )}
                                 </div>
@@ -322,6 +346,7 @@ const ActiveStartups: React.FC = () => {
                                   Updated {formatDate(startup.lastUpdated)}
                                 </p>
                                 <span className="hidden sm:inline-block mx-2 text-slate-300">|</span>
+                                {/* ACTUALIZADA - Mostrar documentsCount */}
                                 <p className="mt-2 flex items-center text-xs text-slate-500 sm:mt-0">
                                   <FileText className="flex-shrink-0 mr-1.5 h-4 w-4 text-slate-400" />
                                   {startup.documentsCount} document{startup.documentsCount !== 1 ? 's' : ''}
@@ -336,6 +361,7 @@ const ActiveStartups: React.FC = () => {
                                   </>
                                 )}
                               </div>
+                              {/* ACTUALIZADA - Mostrar completionPercentage */}
                               <div className="mt-3 sm:mt-0">
                                 <div className="flex items-center mb-1">
                                   <p className="text-xs text-slate-500 mr-2">
@@ -347,7 +373,7 @@ const ActiveStartups: React.FC = () => {
                                 </div>
                                 <div className="bg-slate-100 rounded-full h-1.5 w-44 overflow-hidden">
                                   <div 
-                                    className={`h-1.5 rounded-full ${
+                                    className={`h-1.5 rounded-full transition-all duration-300 ${
                                       startup.completionPercentage >= 75 ? 'bg-emerald-500' : 
                                       startup.completionPercentage >= 40 ? 'bg-amber-500' : 
                                       'bg-blue-500'

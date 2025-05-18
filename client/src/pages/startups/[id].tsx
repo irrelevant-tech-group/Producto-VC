@@ -31,7 +31,10 @@ import {
   X,
   Clock,
   Users,
-  Briefcase
+  Briefcase,
+  Mail,
+  User,
+  Contact
 } from "lucide-react";
 
 export default function StartupDetail() {
@@ -181,6 +184,20 @@ export default function StartupDetail() {
     });
   };
 
+  // Format amount with currency
+  const formatAmount = (amount?: number, currency?: string) => {
+    if (!amount) return "Not specified";
+    
+    const formattedAmount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+    return formattedAmount;
+  };
+
   return (
     <div className="py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       <div className="mb-6">
@@ -219,6 +236,12 @@ export default function StartupDetail() {
                       {startup.stage}
                     </span>
                   )}
+                  {startup?.firstContactDate && (
+                    <span className="inline-flex items-center">
+                      <Contact className="h-3.5 w-3.5 mr-1.5 text-secondary-400" />
+                      First contact {formatDate(startup.firstContactDate)}
+                    </span>
+                  )}
                   {startup?.createdAt && (
                     <span className="inline-flex items-center">
                       <Clock className="h-3.5 w-3.5 mr-1.5 text-secondary-400" />
@@ -234,20 +257,20 @@ export default function StartupDetail() {
                   {startup.status.charAt(0).toUpperCase() + startup.status.slice(1)}
                 </Badge>
               )}
-              {dueDiligence?.overallCompletion !== undefined && (
+              {dueDiligence?.percentage !== undefined && (
                 <div className="flex items-center bg-white border border-slate-200 rounded-full py-1 px-3 shadow-sm">
                   <span className="text-xs font-medium mr-2">Due Diligence</span>
                   <div className="w-16 h-1.5 bg-slate-100 rounded-full">
                     <div 
                       className={`h-1.5 rounded-full ${
-                        dueDiligence.overallCompletion >= 75 ? "bg-green-500" :
-                        dueDiligence.overallCompletion >= 40 ? "bg-amber-500" :
+                        dueDiligence.percentage >= 75 ? "bg-green-500" :
+                        dueDiligence.percentage >= 40 ? "bg-amber-500" :
                         "bg-blue-500"
                       }`}
-                      style={{ width: `${dueDiligence.overallCompletion}%` }}
+                      style={{ width: `${dueDiligence.percentage}%` }}
                     ></div>
                   </div>
-                  <span className="text-xs font-medium ml-2">{dueDiligence.overallCompletion}%</span>
+                  <span className="text-xs font-medium ml-2">{dueDiligence.percentage}%</span>
                 </div>
               )}
             </div>
@@ -289,9 +312,7 @@ export default function StartupDetail() {
                   <Skeleton className="h-5 w-32 mt-1" />
                 ) : (
                   <CardTitle className="text-base font-medium">
-                    {startup?.amountSought
-                      ? `${startup.currency} ${startup.amountSought.toLocaleString()}`
-                      : "Not specified"}
+                    {startup?.amountSought ? formatAmount(startup.amountSought, startup.currency) : "Not specified"}
                   </CardTitle>
                 )}
               </div>
@@ -393,12 +414,12 @@ export default function StartupDetail() {
                 {dueDiligence && (
                   <Badge 
                     className={`px-3 py-1 ${
-                      dueDiligence.overallCompletion >= 75 ? "bg-green-100 text-green-800 hover:bg-green-200" :
-                      dueDiligence.overallCompletion >= 40 ? "bg-amber-100 text-amber-800 hover:bg-amber-200" :
+                      dueDiligence.percentage >= 75 ? "bg-green-100 text-green-800 hover:bg-green-200" :
+                      dueDiligence.percentage >= 40 ? "bg-amber-100 text-amber-800 hover:bg-amber-200" :
                       "bg-blue-100 text-blue-800 hover:bg-blue-200"
                     }`}
                   >
-                    {dueDiligence.overallCompletion}% Complete
+                    {dueDiligence.percentage}% Complete
                   </Badge>
                 )}
               </div>
@@ -414,25 +435,42 @@ export default function StartupDetail() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <Label className="text-base font-medium">Overall Progress</Label>
-                      <span className="text-sm font-medium">{dueDiligence?.overallCompletion || 0}%</span>
+                      <span className="text-sm font-medium">{dueDiligence?.percentage || 0}%</span>
                     </div>
                     <Progress 
-                      value={dueDiligence?.overallCompletion || 0} 
+                      value={dueDiligence?.percentage || 0} 
                       className="h-2.5"
-                      color={dueDiligence?.overallCompletion >= 75 ? "bg-green-500" :
-                             dueDiligence?.overallCompletion >= 40 ? "bg-amber-500" :
+                      color={dueDiligence?.percentage >= 75 ? "bg-green-500" :
+                             dueDiligence?.percentage >= 40 ? "bg-amber-500" :
                              "bg-blue-500"}
                     />
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>{dueDiligence?.completedItems || 0} of {dueDiligence?.totalItems || 0} items completed</span>
+                      <span>Last updated: {dueDiligence ? formatDate(dueDiligence.lastUpdated) : "—"}</span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {dueDiligence && Object.entries(dueDiligence.categories).map(([key, category]) => (
+                    {dueDiligence && dueDiligence.categories && Object.entries(dueDiligence.categories).map(([key, category]) => (
                       <div key={key} className="space-y-2 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                        <div className="flex justify-between">
-                          <Label className="capitalize flex items-center">
-                            {getCategoryIcon(key)}
-                            {key.replace('-', ' ')}
-                          </Label>
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <Label className="capitalize flex items-center">
+                              {getCategoryIcon(key)}
+                              {key.replace('-', ' ')}
+                              <Badge 
+                                variant="outline" 
+                                className={`ml-2 text-xs px-1.5 py-0.5 ${
+                                  category.importance === 'high' ? 'border-red-200 text-red-700' :
+                                  category.importance === 'medium' ? 'border-amber-200 text-amber-700' :
+                                  'border-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {category.importance}
+                              </Badge>
+                            </Label>
+                            <p className="text-xs text-slate-500 mt-1">{category.description}</p>
+                          </div>
                           <span className="text-xs font-medium px-2 py-0.5 bg-white rounded-full border border-slate-200">
                             {category.uploaded}/{category.required}
                           </span>
@@ -446,9 +484,14 @@ export default function StartupDetail() {
                             "bg-blue-500"
                           }
                         />
-                        <p className="text-xs text-slate-500 mt-1">
-                          {getCategoryDescription(key, category.completion)}
-                        </p>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">
+                            {category.completion === 100 ? "Complete" : 
+                             category.missingDocs > 0 ? `${category.missingDocs} missing` : 
+                             "In progress"}
+                          </span>
+                          <span className="font-medium text-slate-700">{category.completion}%</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -538,6 +581,33 @@ export default function StartupDetail() {
                       {startup.description || 'No description provided for this startup.'}
                     </p>
                     
+                    {/* Primary Contact Information */}
+                    {startup.primaryContact && (
+                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
+                        <h4 className="text-sm font-medium text-blue-900 mb-2 flex items-center">
+                          <Contact className="h-4 w-4 mr-2" />
+                          Primary Contact
+                        </h4>
+                        <div className="space-y-2">
+                          <div className="flex items-center text-sm">
+                            <User className="h-4 w-4 mr-2 text-blue-600" />
+                            <span className="text-slate-700">
+                              <strong>{startup.primaryContact.name}</strong> - {startup.primaryContact.position}
+                            </span>
+                          </div>
+                          <div className="flex items-center text-sm">
+                            <Mail className="h-4 w-4 mr-2 text-blue-600" />
+                            <a 
+                              href={`mailto:${startup.primaryContact.email}`}
+                              className="text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              {startup.primaryContact.email}
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
                     {startup.website && (
                       <div className="flex items-center space-x-2 mt-4">
                         <Button 
@@ -566,6 +636,16 @@ export default function StartupDetail() {
                         </div>
                       )}
                       
+                      {startup.firstContactDate && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500 flex items-center">
+                            <Contact className="h-4 w-4 mr-2" />
+                            First Contact
+                          </span>
+                          <span className="font-medium">{formatDate(startup.firstContactDate)}</span>
+                        </div>
+                      )}
+                      
                       {startup.teamSize && (
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-500 flex items-center">
@@ -576,432 +656,414 @@ export default function StartupDetail() {
                         </div>
                       )}
                       
-                      {startup.revenue && (
+                      {startup.amountSought && (
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-500 flex items-center">
                             <DollarSign className="h-4 w-4 mr-2" />
-                            Revenue
+                            Funding Sought
                           </span>
-                          <span className="font-medium">{startup.currency} {startup.revenue.toLocaleString()}</span>
+                          <span className="font-medium">{formatAmount(startup.amountSought, startup.currency)}</span>
                         </div>
                       )}
                       
-                      {startup.valuation && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 flex items-center">
-                            <BarChart2 className="h-4 w-4 mr-2" />
-                            Valuation
-                          </span>
-                          <span className="font-medium">{startup.currency} {startup.valuation.toLocaleString()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
+                      {startup.revenue && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <DollarSign className="h-4 w-4 mr-2" />
+                           Revenue
+                         </span>
+                         <span className="font-medium">{startup.currency} {startup.revenue.toLocaleString()}</span>
+                       </div>
+                     )}
+                     
+                     {startup.valuation && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <BarChart2 className="h-4 w-4 mr-2" />
+                           Valuation
+                         </span>
+                         <span className="font-medium">{startup.currency} {startup.valuation.toLocaleString()}</span>
+                       </div>
+                     )}
+                   </div>
+                 </div>
+               </div>
+             </CardContent>
+           </Card>
+         )}
+       </TabsContent>
 
-        {/* Documents Tab */}
-        <TabsContent value="documents" className="space-y-6">
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-lg font-medium flex items-center">
-                  <FileText className="h-5 w-5 mr-2 text-primary-500" />
-                  Documents
-                </CardTitle>
-                <CardDescription>All documents uploaded for this startup</CardDescription>
-              </div>
-              <Button 
-                onClick={() => navigate(`/documents/upload?startupId=${id}`)}
-                className="flex items-center gap-2"
-              >
-                <FileUp className="h-4 w-4" />
-                Upload
-              </Button>
-            </CardHeader>
-            <CardContent className="p-6">
-              {isLoadingDocuments ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
-                      <Skeleton className="h-12 w-12 rounded-full" />
-                      <div className="space-y-2 flex-1">
-                        <Skeleton className="h-4 w-48" />
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-4 w-16 rounded-full" />
-                          <Skeleton className="h-4 w-24" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  </div>
-              ) : documents && documents.length > 0 ? (
-                <div className="space-y-3">
-                  {documents.map((doc) => (
-                    <div key={doc.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-primary-200 hover:shadow-sm transition-all">
-                      <div className="flex items-start">
-                        <div className={`p-3 rounded-lg mr-4 flex-shrink-0 
-                          ${doc.type === 'pitch-deck' ? 'bg-blue-100 text-blue-600' : 
-                           doc.type === 'financial' ? 'bg-emerald-100 text-emerald-600' : 
-                           doc.type === 'legal' ? 'bg-purple-100 text-purple-600' : 
-                           doc.type === 'technical' ? 'bg-indigo-100 text-indigo-600' : 
-                           'bg-primary-100 text-primary-600'}`}
-                        >
-                          <FileText className="h-6 w-6" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="text-base font-medium text-slate-800 truncate">{doc.name}</h4>
-                              <div className="mt-1 flex items-center flex-wrap gap-2">
-                                <Badge variant="outline" className="text-xs capitalize bg-slate-50 border-slate-200">
-                                  {doc.type.replace('-', ' ')}
-                                </Badge>
-                                <span className="text-xs text-slate-500 flex items-center">
-                                  <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                  {formatDate(doc.uploadedAt)}
-                                </span>
-                                <span className={`text-xs inline-flex items-center px-2 py-0.5 rounded-full ${
-                                  doc.processed ? 'bg-success-100 text-success-800' : 
-                                  doc.processingStatus === 'failed' ? 'bg-destructive-100 text-destructive-800' :
-                                  'bg-warning-100 text-warning-800'
-                                }`}>
-                                  {doc.processed ? (
-                                    <><Check className="h-3 w-3 mr-1" /> Processed</>
-                                  ) : doc.processingStatus === 'failed' ? (
-                                    <><X className="h-3 w-3 mr-1" /> Failed</>
-                                  ) : (
-                                    <><Clock className="h-3 w-3 mr-1" /> {doc.processingStatus === 'processing' ? 'Processing' : 'Pending'}</>
-                                  )}
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              className="text-slate-600 hover:text-primary-600"
-                              onClick={() => navigate(`/documents/${doc.id}`)}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          
-                          {doc.description && (
-                            <p className="mt-2 text-sm text-slate-600 line-clamp-2">{doc.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 px-4">
-                  <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
-                    <FileText className="h-8 w-8 text-slate-400" />
-                  </div>
-                  <h3 className="mt-2 text-lg font-medium text-slate-800">No documents yet</h3>
-                  <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                    Get started by uploading documents for this startup. Documents will help with due diligence and investment decisions.
-                  </p>
-                  <div className="mt-6">
-                    <Button onClick={() => navigate(`/documents/upload?startupId=${id}`)}>
-                      <FileUp className="h-4 w-4 mr-2" />
-                      Upload First Document
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-            <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
-              <div className="text-xs text-slate-500">
-                {documents?.length ? `${documents.length} document${documents.length !== 1 ? 's' : ''} found` : 'No documents'}
-              </div>
-              <Button 
-                variant="link" 
-                size="sm" 
-                className="text-xs text-primary-600"
-                onClick={() => navigate('/documents')}
-              >
-                View All Documents
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
+       {/* Documents Tab */}
+       <TabsContent value="documents" className="space-y-6">
+         <Card className="border-slate-200 shadow-sm overflow-hidden">
+           <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
+             <div>
+               <CardTitle className="text-lg font-medium flex items-center">
+                 <FileText className="h-5 w-5 mr-2 text-primary-500" />
+                 Documents
+               </CardTitle>
+               <CardDescription>All documents uploaded for this startup</CardDescription>
+             </div>
+             <Button 
+               onClick={() => navigate(`/documents/upload?startupId=${id}`)}
+               className="flex items-center gap-2"
+             >
+               <FileUp className="h-4 w-4" />
+               Upload
+             </Button>
+           </CardHeader>
+           <CardContent className="p-6">
+             {isLoadingDocuments ? (
+               <div className="space-y-4">
+                 {[1, 2, 3].map((i) => (
+                   <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
+                     <Skeleton className="h-12 w-12 rounded-full" />
+                     <div className="space-y-2 flex-1">
+                       <Skeleton className="h-4 w-48" />
+                       <div className="flex items-center gap-2">
+                         <Skeleton className="h-4 w-16 rounded-full" />
+                         <Skeleton className="h-4 w-24" />
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             ) : documents && documents.length > 0 ? (
+               <div className="space-y-3">
+                 {documents.map((doc) => (
+                   <div key={doc.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-primary-200 hover:shadow-sm transition-all">
+                     <div className="flex items-start">
+                       <div className={`p-3 rounded-lg mr-4 flex-shrink-0 
+                         ${doc.type === 'pitch-deck' ? 'bg-blue-100 text-blue-600' : 
+                          doc.type === 'financials' ? 'bg-emerald-100 text-emerald-600' : 
+                          doc.type === 'legal' ? 'bg-purple-100 text-purple-600' : 
+                          doc.type === 'tech' ? 'bg-indigo-100 text-indigo-600' : 
+                          'bg-primary-100 text-primary-600'}`}
+                       >
+                         <FileText className="h-6 w-6" />
+                       </div>
+                       <div className="flex-1 min-w-0">
+                         <div className="flex items-start justify-between">
+                           <div>
+                             <h4 className="text-base font-medium text-slate-800 truncate">{doc.name}</h4>
+                             <div className="mt-1 flex items-center flex-wrap gap-2">
+                               <Badge variant="outline" className="text-xs capitalize bg-slate-50 border-slate-200">
+                                 {doc.type.replace('-', ' ')}
+                               </Badge>
+                               <span className="text-xs text-slate-500 flex items-center">
+                                 <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                 {formatDate(doc.uploadedAt)}
+                               </span>
+                               <span className={`text-xs inline-flex items-center px-2 py-0.5 rounded-full ${
+                                 doc.processed ? 'bg-success-100 text-success-800' : 
+                                 doc.processingStatus === 'failed' ? 'bg-destructive-100 text-destructive-800' :
+                                 'bg-warning-100 text-warning-800'
+                               }`}>
+                                 {doc.processed ? (
+                                   <><Check className="h-3 w-3 mr-1" /> Processed</>
+                                 ) : doc.processingStatus === 'failed' ? (
+                                   <><X className="h-3 w-3 mr-1" /> Failed</>
+                                 ) : (
+                                   <><Clock className="h-3 w-3 mr-1" /> {doc.processingStatus === 'processing' ? 'Processing' : 'Pending'}</>
+                                 )}
+                               </span>
+                             </div>
+                           </div>
+                           
+                           <Button 
+                             variant="ghost" 
+                             size="sm"
+                             className="text-slate-600 hover:text-primary-600"
+                             onClick={() => navigate(`/documents/${doc.id}`)}
+                           >
+                             <ExternalLink className="h-4 w-4" />
+                           </Button>
+                         </div>
+                         
+                         {doc.description && (
+                           <p className="mt-2 text-sm text-slate-600 line-clamp-2">{doc.description}</p>
+                         )}
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             ) : (
+               <div className="text-center py-12 px-4">
+                 <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
+                   <FileText className="h-8 w-8 text-slate-400" />
+                 </div>
+                 <h3 className="mt-2 text-lg font-medium text-slate-800">No documents yet</h3>
+                 <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                   Get started by uploading documents for this startup. Documents will help with due diligence and investment decisions.
+                 </p>
+                 <div className="mt-6">
+                   <Button onClick={() => navigate(`/documents/upload?startupId=${id}`)}>
+                     <FileUp className="h-4 w-4 mr-2" />
+                     Upload First Document
+                   </Button>
+                 </div>
+               </div>
+             )}
+           </CardContent>
+           <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
+             <div className="text-xs text-slate-500">
+               {documents?.length ? `${documents.length} document${documents.length !== 1 ? 's' : ''} found` : 'No documents'}
+             </div>
+             <Button 
+               variant="link" 
+               size="sm" 
+               className="text-xs text-primary-600"
+               onClick={() => navigate('/documents')}
+             >
+               View All Documents
+             </Button>
+           </CardFooter>
+         </Card>
+       </TabsContent>
 
-        {/* Memos Tab */}
-        <TabsContent value="memos" className="space-y-6">
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-lg font-medium flex items-center">
-                  <Layers className="h-5 w-5 mr-2 text-primary-500" />
-                  Investment Memos
-                </CardTitle>
-                <CardDescription>Generated investment memos for this startup</CardDescription>
-              </div>
-              <Button 
-                onClick={handleGenerateMemo}
-                disabled={generateMemoMutation.isPending}
-                className="flex items-center gap-2"
-              >
-                <FileText className="h-4 w-4" />
-                {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
-              </Button>
-            </CardHeader>
-            <CardContent className="p-6">
-              {isLoadingMemos ? (
-                <div className="space-y-4">
-                  {[1, 2].map((i) => (
-                    <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
-                      <Skeleton className="h-12 w-12 rounded-lg" />
-                      <div className="space-y-2 flex-1">
-                        <Skeleton className="h-4 w-48" />
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-4 w-16 rounded-full" />
-                          <Skeleton className="h-4 w-24" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : memos && memos.length > 0 ? (
-                <div className="space-y-3">
-                  {memos.map((memo) => (
-                    <div key={memo.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-accent-200 hover:shadow-sm transition-all">
-                      <div className="flex items-start">
-                        <div className="p-3 rounded-lg mr-4 flex-shrink-0 bg-accent-100 text-accent-600">
-                          <Layers className="h-6 w-6" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="text-base font-medium text-slate-800">
-                                Investment Memo v{memo.version}
-                              </h4>
-                              <div className="mt-1 flex items-center flex-wrap gap-2">
-                                <Badge 
-                                  variant={memo.status === 'draft' ? 'outline' : 
-                                          memo.status === 'review' ? 'secondary' : 'success'} 
-                                  className="text-xs capitalize"
-                                >
-                                  {memo.status}
-                                </Badge>
-                                <span className="text-xs text-slate-500 flex items-center">
-                                  <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                  {formatDate(memo.createdAt)}
-                                </span>
-                                <span className="text-xs text-slate-500 flex items-center">
-                                  <AlignLeft className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                  {memo.sections?.length || 0} sections
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="text-accent-600 border-accent-200 hover:bg-accent-50"
-                              onClick={() => navigate(`/memos/${memo.id}`)}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                              View
-                            </Button>
-                          </div>
-                          
-                          {memo.summary && (
-                            <p className="mt-2 text-sm text-slate-600 line-clamp-2">{memo.summary}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 px-4">
-                  <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
-                    <AlignLeft className="h-8 w-8 text-slate-400" />
-                  </div>
-                  <h3 className="mt-2 text-lg font-medium text-slate-800">No memos yet</h3>
-                  <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                    Generate your first investment memo for this startup to analyze its potential and document your investment thesis.
-                  </p>
-                  <div className="mt-6">
-                    <Button 
-                      onClick={handleGenerateMemo}
-                      disabled={generateMemoMutation.isPending}
-                      className="flex items-center gap-2"
-                    >
-                      <FileText className="h-4 w-4" />
-                      {generateMemoMutation.isPending ? "Generating..." : "Generate First Memo"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-            <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
-              <div className="text-xs text-slate-500">
-                {memos?.length ? `${memos.length} memo${memos.length !== 1 ? 's' : ''} found` : 'No memos'}
-              </div>
-              <Button 
-                variant="link" 
-                size="sm" 
-                className="text-xs text-primary-600"
-                onClick={() => navigate('/memos')}
-              >
-                View All Memos
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
+       {/* Memos Tab */}
+       <TabsContent value="memos" className="space-y-6">
+         <Card className="border-slate-200 shadow-sm overflow-hidden">
+           <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
+             <div>
+               <CardTitle className="text-lg font-medium flex items-center">
+                 <Layers className="h-5 w-5 mr-2 text-primary-500" />
+                 Investment Memos
+               </CardTitle>
+               <CardDescription>Generated investment memos for this startup</CardDescription>
+             </div>
+             <Button 
+               onClick={handleGenerateMemo}
+               disabled={generateMemoMutation.isPending}
+               className="flex items-center gap-2"
+             >
+               <FileText className="h-4 w-4" />
+               {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
+             </Button>
+           </CardHeader>
+           <CardContent className="p-6">
+             {isLoadingMemos ? (
+               <div className="space-y-4">
+                 {[1, 2].map((i) => (
+                   <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
+                     <Skeleton className="h-12 w-12 rounded-lg" />
+                     <div className="space-y-2 flex-1">
+                       <Skeleton className="h-4 w-48" />
+                       <div className="flex items-center gap-2">
+                         <Skeleton className="h-4 w-16 rounded-full" />
+                         <Skeleton className="h-4 w-24" />
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             ) : memos && memos.length > 0 ? (
+               <div className="space-y-3">
+                 {memos.map((memo) => (
+                   <div key={memo.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-accent-200 hover:shadow-sm transition-all">
+                     <div className="flex items-start">
+                       <div className="p-3 rounded-lg mr-4 flex-shrink-0 bg-accent-100 text-accent-600">
+                         <Layers className="h-6 w-6" />
+                       </div>
+                       <div className="flex-1 min-w-0">
+                         <div className="flex items-start justify-between">
+                           <div>
+                             <h4 className="text-base font-medium text-slate-800">
+                               Investment Memo v{memo.version}
+                             </h4>
+                             <div className="mt-1 flex items-center flex-wrap gap-2">
+                               <Badge 
+                                 variant={memo.status === 'draft' ? 'outline' : 
+                                         memo.status === 'review' ? 'secondary' : 'success'} 
+                                 className="text-xs capitalize"
+                               >
+                                 {memo.status}
+                               </Badge>
+                               <span className="text-xs text-slate-500 flex items-center">
+                                 <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                 {formatDate(memo.createdAt)}
+                               </span>
+                               <span className="text-xs text-slate-500 flex items-center">
+                                 <AlignLeft className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                 {memo.sections?.length || 0} sections
+                               </span>
+                             </div>
+                           </div>
+                           
+                           <Button 
+                             variant="outline" 
+                             size="sm"
+                             className="text-accent-600 border-accent-200 hover:bg-accent-50"
+                             onClick={() => navigate(`/memos/${memo.id}`)}
+                           >
+                             <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                             View
+                           </Button>
+                         </div>
+                         
+                         {memo.summary && (
+                           <p className="mt-2 text-sm text-slate-600 line-clamp-2">{memo.summary}</p>
+                         )}
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             ) : (
+               <div className="text-center py-12 px-4">
+                 <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
+                   <AlignLeft className="h-8 w-8 text-slate-400" />
+                 </div>
+                 <h3 className="mt-2 text-lg font-medium text-slate-800">No memos yet</h3>
+                 <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                   Generate your first investment memo for this startup to analyze its potential and document your investment thesis.
+                 </p>
+                 <div className="mt-6">
+                   <Button 
+                     onClick={handleGenerateMemo}
+                     disabled={generateMemoMutation.isPending}
+                     className="flex items-center gap-2"
+                   >
+                     <FileText className="h-4 w-4" />
+                     {generateMemoMutation.isPending ? "Generating..." : "Generate First Memo"}
+                   </Button>
+                 </div>
+               </div>
+             )}
+           </CardContent>
+           <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
+             <div className="text-xs text-slate-500">
+               {memos?.length ? `${memos.length} memo${memos.length !== 1 ? 's' : ''} found` : 'No memos'}
+             </div>
+             <Button 
+               variant="link" 
+               size="sm" 
+               className="text-xs text-primary-600"
+               onClick={() => navigate('/memos')}
+             >
+               View All Memos
+             </Button>
+           </CardFooter>
+         </Card>
+       </TabsContent>
 
-        {/* AI Assistant Tab */}
-        <TabsContent value="ai" className="space-y-6">
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
-              <CardTitle className="text-lg font-medium flex items-center">
-                <MessageCircle className="h-5 w-5 mr-2 text-primary-500" />
-                AI Assistant
-              </CardTitle>
-              <CardDescription>
-                Ask questions about this startup based on the uploaded documents
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="text-center py-12 px-4">
-                <div className="bg-indigo-50 inline-flex rounded-full p-4 mb-4">
-                  <MessageCircle className="h-8 w-8 text-indigo-600" />
-                </div>
-                <h3 className="mt-2 text-lg font-medium text-slate-800">AI Assistant</h3>
-                <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                  Get insights from documents, analyze financial data, and ask questions about {startup?.name || "this startup"}.
-                </p>
-                <div className="mt-6 space-x-3">
-                  <Button 
-                    onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
-                    className="flex items-center gap-2"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    Go to AI Assistant
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-            
-            <CardFooter className="bg-slate-50 border-t border-slate-200 p-4">
-              <div className="w-full">
-                <h4 className="text-xs font-medium text-slate-700 mb-2">Sample Questions:</h4>
-                <div className="flex flex-wrap gap-2">
-                  {getSampleQuestions(startup?.vertical).map((question, idx) => (
-                    <Badge 
-                      key={idx} 
-                      variant="outline" 
-                      className="text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200"
-                      onClick={() => navigate(`/ai-assistant?startupId=${id}&question=${encodeURIComponent(question)}`)}
-                    >
-                      {question}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+       {/* AI Assistant Tab */}
+       <TabsContent value="ai" className="space-y-6">
+         <Card className="border-slate-200 shadow-sm overflow-hidden">
+           <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
+             <CardTitle className="text-lg font-medium flex items-center">
+               <MessageCircle className="h-5 w-5 mr-2 text-primary-500" />
+               AI Assistant
+             </CardTitle>
+             <CardDescription>
+               Ask questions about this startup based on the uploaded documents
+             </CardDescription>
+           </CardHeader>
+           <CardContent className="p-6">
+             <div className="text-center py-12 px-4">
+               <div className="bg-indigo-50 inline-flex rounded-full p-4 mb-4">
+                 <MessageCircle className="h-8 w-8 text-indigo-600" />
+               </div>
+               <h3 className="mt-2 text-lg font-medium text-slate-800">AI Assistant</h3>
+               <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                 Get insights from documents, analyze financial data, and ask questions about {startup?.name || "this startup"}.
+               </p>
+               <div className="mt-6 space-x-3">
+                 <Button 
+                   onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
+                   className="flex items-center gap-2"
+                 >
+                   <MessageCircle className="h-4 w-4" />
+                   Go to AI Assistant
+                 </Button>
+               </div>
+             </div>
+           </CardContent>
+           
+           <CardFooter className="bg-slate-50 border-t border-slate-200 p-4">
+             <div className="w-full">
+               <h4 className="text-xs font-medium text-slate-700 mb-2">Sample Questions:</h4>
+               <div className="flex flex-wrap gap-2">
+                 {getSampleQuestions(startup?.vertical).map((question, idx) => (
+                   <Badge 
+                     key={idx} 
+                     variant="outline" 
+                     className="text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200"
+                     onClick={() => navigate(`/ai-assistant?startupId=${id}&question=${encodeURIComponent(question)}`)}
+                   >
+                     {question}
+                   </Badge>
+                 ))}
+               </div>
+             </div>
+           </CardFooter>
+         </Card>
+       </TabsContent>
+     </Tabs>
+   </div>
+ );
 }
 
 // Helper function to get category icon
 function getCategoryIcon(category: string) {
-  switch(category.toLowerCase()) {
-    case 'financial':
-      return <DollarSign className="h-4 w-4 mr-2 text-emerald-600" />;
-    case 'legal':
-      return <FileText className="h-4 w-4 mr-2 text-purple-600" />;
-    case 'pitch-deck':
-      return <Layers className="h-4 w-4 mr-2 text-blue-600" />;
-    case 'technical':
-      return <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />;
-    case 'team':
-      return <Users className="h-4 w-4 mr-2 text-amber-600" />;
-    default:
-      return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
-  }
-}
-
-// Helper function to get category description
-function getCategoryDescription(category: string, completion: number) {
-  if (completion === 100) {
-    return "All required documents uploaded";
-  }
-  
-  switch(category.toLowerCase()) {
-    case 'financial':
-      return completion > 50 
-        ? "Financial documents partially complete" 
-        : "Key financial documents missing";
-    case 'legal':
-      return completion > 50 
-        ? "Legal agreements partially uploaded" 
-        : "Required legal documents missing";
-    case 'pitch-deck':
-      return completion > 0 
-        ? "Pitch deck available" 
-        : "No pitch deck uploaded";
-    case 'technical':
-      return completion > 50 
-        ? "Technical documentation partially available" 
-        : "Technical documents needed";
-    default:
-      return completion > 50 
-        ? "Some documents uploaded" 
-        : "Additional documents needed";
-  }
+ switch(category.toLowerCase()) {
+   case 'financials':
+     return <DollarSign className="h-4 w-4 mr-2 text-emerald-600" />;
+   case 'legal':
+     return <FileText className="h-4 w-4 mr-2 text-purple-600" />;
+   case 'pitch-deck':
+     return <Layers className="h-4 w-4 mr-2 text-blue-600" />;
+   case 'tech':
+     return <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />;
+   case 'market':
+     return <BarChart2 className="h-4 w-4 mr-2 text-amber-600" />;
+   case 'other':
+     return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
+   default:
+     return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
+ }
 }
 
 // Helper function to get sample questions based on vertical
 function getSampleQuestions(vertical?: string) {
-  const baseQuestions = [
-    "What are the key metrics?",
-    "Who is on the founding team?"
-  ];
-  
-  if (!vertical) return baseQuestions;
-  
-  switch(vertical.toLowerCase()) {
-    case 'fintech':
-      return [
-        "What are the unit economics?",
-        "What's the customer acquisition cost?",
-        "What regulations apply?"
-      ];
-    case 'ai':
-      return [
-        "What AI technology do they use?",
-        "What's their data strategy?",
-        "How do they compare to competitors?"
-      ];
-    case 'saas':
-      return [
-        "What's their MRR growth?",
-        "What's their churn rate?",
-        "How is their sales pipeline?"
-      ];
-    case 'health':
-      return [
-        "What clinical validation exists?",
-        "What's their regulatory pathway?",
-        "What's their go-to-market strategy?"
-      ];
-    default:
-      return [
-        "What's the business model?",
-        "What's the market opportunity?",
-        "What's the competitive landscape?"
-      ];
-  }
+ const baseQuestions = [
+   "What are the key metrics?",
+   "Who is on the founding team?"
+ ];
+ 
+ if (!vertical) return baseQuestions;
+ 
+ switch(vertical.toLowerCase()) {
+   case 'fintech':
+     return [
+       "What are the unit economics?",
+       "What's the customer acquisition cost?",
+       "What regulations apply?"
+     ];
+   case 'ai':
+     return [
+       "What AI technology do they use?",
+       "What's their data strategy?",
+       "How do they compare to competitors?"
+     ];
+   case 'saas':
+     return [
+       "What's their MRR growth?",
+       "What's their churn rate?",
+       "How is their sales pipeline?"
+     ];
+   case 'health':
+     return [
+       "What clinical validation exists?",
+       "What's their regulatory pathway?",
+       "What's the go-to-market strategy?"
+     ];
+   default:
+     return [
+       "What's the business model?",
+       "What's the market opportunity?",
+       "What's the competitive landscape?"
+     ];
+ }
 }
