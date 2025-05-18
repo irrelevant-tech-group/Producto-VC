@@ -154,8 +154,17 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
   // Guardar chunks con embeddings, sanitizando null bytes
   for (let i = 0; i < chunks.length; i++) {
     const raw = chunks[i];
-    const chunkText = raw.replace(/\u0000/g, "");  // Eliminar bytes nulos
+    // Asegurar que chunkText es un string válido y sanitizar
+    const chunkText = typeof raw === 'string' 
+      ? raw.replace(/\u0000/g, "") 
+      : String(raw).replace(/\u0000/g, "");
 
+    // Verificar si el texto sanitizado no está vacío
+    if (!chunkText.trim()) {
+      console.log(`Saltando chunk ${i} porque está vacío después de sanitizar`);
+      continue;
+    }
+    
     const chunkRecord: InsertChunk = {
       documentId: document.id,
       startupId: document.startupId,
@@ -172,8 +181,14 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
       // Generar embedding para el chunk usando el servicio de OpenAI
       const embedding = await generateEmbedding(chunkText);
       
-      // Insertar chunk con su embedding
-      await storage.createChunkWithEmbedding(chunkRecord, embedding);
+      // Verificar que el embedding es válido
+      if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+        // Insertar chunk con su embedding
+        await storage.createChunkWithEmbedding(chunkRecord, embedding);
+      } else {
+        console.error(`Embedding inválido para chunk ${i}, guardando sin embedding`);
+        await storage.createChunk(chunkRecord);
+      }
     } catch (err: any) {
       console.error(`Error embedding chunk ${i}:`, err);
       await storage.createChunk({

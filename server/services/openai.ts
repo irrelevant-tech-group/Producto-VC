@@ -19,12 +19,19 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     // Validación de entrada
-    if (!text || text.trim() === "") {
+    if (!text || typeof text !== 'string') {
+      throw new Error("El texto debe ser un string válido");
+    }
+    
+    // Convertir a string si por alguna razón no lo es
+    const textString = String(text).trim();
+    
+    if (textString === "") {
       throw new Error("El texto no puede estar vacío");
     }
     
     // Limitar tamaño para evitar exceder límites de API
-    const truncatedText = text.slice(0, 8000);
+    const truncatedText = textString.slice(0, 8000);
     
     // Implementar retry logic con backoff exponencial para mejorar resiliencia
     let attempts = 0;

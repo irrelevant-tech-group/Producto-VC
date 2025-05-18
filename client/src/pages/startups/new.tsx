@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { insertStartupSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,19 +11,34 @@ import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createStartup } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Building2 } from "lucide-react";
+import { ArrowLeft, Building2, Calendar } from "lucide-react";
 import { Link } from "wouter";
+import { Textarea } from "@/components/ui/textarea";
 
-// Add validation to the insert schema
-const formSchema = insertStartupSchema.extend({
+// Create a schema that matches what's required by the backend
+const formSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
+  vertical: z.string(),
+  stage: z.string(),
   location: z.string().min(2, "Location is required"),
+  amountSought: z.number().optional(),
+  currency: z.string(),
+  status: z.string().default("active"),
+  description: z.string().optional(),
+  
+  // Required fields from the error message
+  firstContactDate: z.string().min(1, "First contact date is required"),
+  
+  // Primary contact fields
+  contactName: z.string().min(1, "Contact name is required"),
+  contactEmail: z.string().email("Valid email is required"),
+  contactPosition: z.string().min(1, "Position is required")
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
 export default function StartupNew() {
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,7 +46,6 @@ export default function StartupNew() {
   const {
     register,
     handleSubmit,
-    control,
     formState: { errors },
     setValue,
     watch,
@@ -43,9 +56,13 @@ export default function StartupNew() {
       vertical: "fintech",
       stage: "seed",
       location: "",
-      amountSought: undefined,
       currency: "USD",
       status: "active",
+      description: "",
+      firstContactDate: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+      contactName: "",
+      contactEmail: "",
+      contactPosition: ""
     },
   });
 
@@ -75,27 +92,52 @@ export default function StartupNew() {
 
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
-    createStartupMutation.mutate(data);
+    
+    // Format the data to match the expected schema
+    const formattedData = {
+      ...data,
+      amountSought: data.amountSought ? Number(data.amountSought) : undefined,
+      // Create the primaryContact object from the individual fields
+      primaryContact: {
+        name: data.contactName,
+        email: data.contactEmail,
+        position: data.contactPosition
+      }
+    };
+
+    // Remove the individual contact fields as they're now in the primaryContact object
+    delete formattedData.contactName;
+    delete formattedData.contactEmail;
+    delete formattedData.contactPosition;
+
+    console.log("Submitting startup data:", formattedData);
+    
+    try {
+      await createStartupMutation.mutateAsync(formattedData);
+    } catch (error) {
+      console.error("Error creating startup:", error);
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="mb-6">
         <Link href="/startups">
-          <a className="flex items-center text-sm text-secondary-600 hover:text-primary-600 mb-2">
+          <Button variant="ghost" size="sm" className="flex items-center text-sm text-slate-600 hover:text-primary-600 mb-2">
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back to startups
-          </a>
+          </Button>
         </Link>
-        <h1 className="text-2xl font-bold text-secondary-900">Add New Startup</h1>
-        <p className="mt-1 text-sm text-secondary-500">
+        <h1 className="text-2xl font-bold text-slate-900">Add New Startup</h1>
+        <p className="mt-1 text-sm text-slate-500">
           Add a new startup to your investment pipeline
         </p>
       </div>
 
       <Card className="max-w-2xl mx-auto">
         <CardHeader>
-          <CardTitle className="text-lg font-medium text-secondary-900">
+          <CardTitle className="text-lg font-medium text-slate-900">
             Startup Details
           </CardTitle>
         </CardHeader>
@@ -122,9 +164,9 @@ export default function StartupNew() {
                   <Label htmlFor="vertical">Vertical*</Label>
                   <Select
                     value={watch("vertical")}
-                    onValueChange={(value) => setValue("vertical", value as any)}
+                    onValueChange={(value) => setValue("vertical", value)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="vertical">
                       <SelectValue placeholder="Select vertical" />
                     </SelectTrigger>
                     <SelectContent>
@@ -143,9 +185,9 @@ export default function StartupNew() {
                   <Label htmlFor="stage">Stage*</Label>
                   <Select
                     value={watch("stage")}
-                    onValueChange={(value) => setValue("stage", value as any)}
+                    onValueChange={(value) => setValue("stage", value)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="stage">
                       <SelectValue placeholder="Select stage" />
                     </SelectTrigger>
                     <SelectContent>
@@ -172,6 +214,24 @@ export default function StartupNew() {
                 )}
               </div>
 
+              <div>
+                <Label htmlFor="firstContactDate" className={errors.firstContactDate ? "text-destructive" : ""}>
+                  First Contact Date*
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="firstContactDate"
+                    type="date"
+                    {...register("firstContactDate")}
+                    className={errors.firstContactDate ? "border-destructive pl-10" : "pl-10"}
+                  />
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                </div>
+                {errors.firstContactDate && (
+                  <p className="text-destructive text-xs mt-1">{errors.firstContactDate.message}</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="amountSought">Amount Sought</Label>
@@ -179,7 +239,9 @@ export default function StartupNew() {
                     id="amountSought"
                     placeholder="e.g. 1000000"
                     type="number"
-                    {...register("amountSought", { valueAsNumber: true })}
+                    {...register("amountSought", { 
+                      setValueAs: value => value === "" ? undefined : Number(value)
+                    })}
                   />
                 </div>
 
@@ -187,9 +249,9 @@ export default function StartupNew() {
                   <Label htmlFor="currency">Currency</Label>
                   <Select
                     value={watch("currency")}
-                    onValueChange={(value) => setValue("currency", value as any)}
+                    onValueChange={(value) => setValue("currency", value)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="currency">
                       <SelectValue placeholder="Select currency" />
                     </SelectTrigger>
                     <SelectContent>
@@ -200,6 +262,69 @@ export default function StartupNew() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              {/* Primary Contact Information */}
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <h3 className="text-sm font-medium text-blue-900 mb-3">Primary Contact Information*</h3>
+                
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="contactName" className={errors.contactName ? "text-destructive" : ""}>
+                      Contact Name*
+                    </Label>
+                    <Input
+                      id="contactName"
+                      placeholder="Full name"
+                      {...register("contactName")}
+                      className={errors.contactName ? "border-destructive" : ""}
+                    />
+                    {errors.contactName && (
+                      <p className="text-destructive text-xs mt-1">{errors.contactName.message}</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="contactEmail" className={errors.contactEmail ? "text-destructive" : ""}>
+                      Contact Email*
+                    </Label>
+                    <Input
+                      id="contactEmail"
+                      type="email"
+                      placeholder="email@example.com"
+                      {...register("contactEmail")}
+                      className={errors.contactEmail ? "border-destructive" : ""}
+                    />
+                    {errors.contactEmail && (
+                      <p className="text-destructive text-xs mt-1">{errors.contactEmail.message}</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="contactPosition" className={errors.contactPosition ? "text-destructive" : ""}>
+                      Position/Role*
+                    </Label>
+                    <Input
+                      id="contactPosition"
+                      placeholder="e.g. CEO, Founder"
+                      {...register("contactPosition")}
+                      className={errors.contactPosition ? "border-destructive" : ""}
+                    />
+                    {errors.contactPosition && (
+                      <p className="text-destructive text-xs mt-1">{errors.contactPosition.message}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="description">Description (Optional)</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Brief description of the startup..."
+                  className="resize-none"
+                  {...register("description")}
+                />
               </div>
             </div>
 
@@ -214,6 +339,7 @@ export default function StartupNew() {
               <Button
                 type="submit"
                 disabled={isSubmitting}
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 {isSubmitting ? "Creating..." : "Create Startup"}
               </Button>

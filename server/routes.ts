@@ -113,26 +113,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
  // ACTUALIZADO - Incluye nuevos campos en la respuesta
  app.get(`${apiRouter}/startups/:id`, async (req: Request, res: Response) => {
-   try {
-     const startup = await storage.getStartup(req.params.id);
-     if (!startup) {
-       return res.status(404).json({ message: "Startup not found" });
-     }
-     
-     // Incluir todos los campos, incluyendo los nuevos
-     const response = {
-       ...startup,
-       amountSought: startup.amountSought ? Number(startup.amountSought) : null,
-       currency: startup.currency,
-       primaryContact: startup.primaryContact,
-       firstContactDate: startup.firstContactDate?.toISOString().split('T')[0] || null
-     };
-     
-     res.json(response);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
+  try {
+    const startup = await storage.getStartup(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    // Para debug
+    console.log("Raw startup from DB:", JSON.stringify(startup, null, 2));
+    
+    // Crear un objeto básico con los campos obligatorios
+    const response = {
+      id: startup.id,
+      name: startup.name,
+      vertical: startup.vertical || "",
+      stage: startup.stage || "",
+      location: startup.location || "",
+      status: startup.status || "active",
+      
+      // Añadir campos opcionales de forma segura
+      amountSought: startup.amountSought ? Number(startup.amountSought) : null,
+      currency: startup.currency || "USD",
+      primaryContact: startup.primaryContact || {},
+      firstContactDate: startup.firstContactDate || null,
+      description: startup.description || "",
+      alignmentScore: startup.alignmentScore || null
+    };
+    
+    res.json(response);
+  } catch (error: any) {
+    console.error(`Error fetching startup ${req.params.id}:`, error);
+    res.status(500).json({ 
+      message: "Error fetching startup details", 
+      error: error.message 
+    });
+  }
+});
 
  // ACTUALIZADO - Validar y leer nuevos campos del body
  app.post(`${apiRouter}/startups`, async (req: Request, res: Response) => {

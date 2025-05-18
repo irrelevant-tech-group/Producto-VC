@@ -14,6 +14,7 @@ import {
   ActivityItem,
   DueDiligenceProgress
 } from "@shared/types";
+import { v4 as uuidv4 } from 'uuid';
 import { generateEmbedding } from "./services/openai";
 
 
@@ -257,15 +258,31 @@ export class DatabaseStorage implements IStorage {
     return chunk;
   }
   
-  async createChunkWithEmbedding(insertChunk: InsertChunk, text: string): Promise<Chunk> {
+  async createChunkWithEmbedding(insertChunk: InsertChunk, embedding?: number[]): Promise<Chunk> {
     try {
-      let embedding: number[] | null = null;
+      // Si ya se proporcionó un embedding, utilízalo
+      if (embedding && Array.isArray(embedding)) {
+        const [chunk] = await db.insert(chunks)
+          .values({ ...insertChunk, embedding })
+          .returning();
+        return chunk;
+      }
+      
+      // Si no hay embedding, intentar generarlo a partir del contenido del chunk
+      let vectorEmbedding: number[] | null = null;
       let attempts = 0;
       const maxAttempts = 3;
       
+      // Asegurar que tenemos un string válido para generar embedding
+      const content = insertChunk.content;
+      if (!content || typeof content !== 'string') {
+        console.error("Error: el contenido del chunk no es un string válido");
+        return this.createChunk(insertChunk); // Fallback a creación sin embedding
+      }
+      
       while (attempts < maxAttempts) {
         try {
-          embedding = await generateEmbedding(text);
+          vectorEmbedding = await generateEmbedding(content);
           break;
         } catch (err) {
           attempts++;
@@ -279,9 +296,9 @@ export class DatabaseStorage implements IStorage {
         }
       }
       
-      if (embedding) {
+      if (vectorEmbedding) {
         const [chunk] = await db.insert(chunks)
-          .values({ ...insertChunk, embedding })
+          .values({ ...insertChunk, embedding: vectorEmbedding })
           .returning();
         return chunk;
       } else {
@@ -656,8 +673,8 @@ export class DatabaseStorage implements IStorage {
         // NUEVAS operaciones para consultas AI con persistencia
         async saveQuery(insertQuery: InsertAiQuery): Promise<AiQuery> {
           try {
-            // Crear UUID para la consulta
-            const queryId = crypto.randomUUID();
+            // Crear UUID para la consulta usando uuid v4 en lugar de crypto
+            const queryId = uuidv4();
             
             // Preparar datos para inserción
             const queryData = {
@@ -712,7 +729,7 @@ export class DatabaseStorage implements IStorage {
             
             // Fallback: retornar un objeto AiQuery con los datos originales
             return {
-              id: crypto.randomUUID(),
+              id: uuidv4(),
               question: insertQuery.question,
               answer: insertQuery.answer,
               sources: insertQuery.sources,

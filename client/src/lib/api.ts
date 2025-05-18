@@ -1,14 +1,17 @@
 import { apiRequest } from './queryClient';
 
 // Dashboard API
-export const fetchDashboardMetrics = async () => {
-  const res = await fetch('/api/dashboard/metrics');
+export const fetchDashboardMetrics = async (timeRange = '30d') => {
+  const res = await fetch(`/api/dashboard/metrics?timeRange=${timeRange}`);
   if (!res.ok) throw new Error('Failed to fetch dashboard metrics');
   return res.json();
 };
 
-export const fetchRecentActivities = async (limit = 10) => {
-  const res = await fetch(`/api/dashboard/activities?limit=${limit}`);
+export const fetchRecentActivities = async (limit = 10, filter = null) => {
+  const url = filter 
+    ? `/api/dashboard/activities?limit=${limit}&filter=${filter}` 
+    : `/api/dashboard/activities?limit=${limit}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch recent activities');
   return res.json();
 };
@@ -27,7 +30,48 @@ export const fetchStartup = async (id: string) => {
 };
 
 export const createStartup = async (data: any) => {
-  return apiRequest('POST', '/api/startups', data);
+  console.log("API Client: Creating startup with data:", data);
+  
+  // Required fields that need to be present
+  if (!data.primaryContact) {
+    console.error("Missing required primaryContact object");
+    throw new Error("Primary contact information is required");
+  }
+  
+  if (!data.firstContactDate) {
+    console.error("Missing required firstContactDate");
+    throw new Error("First contact date is required");
+  }
+  
+  // Create a filtered copy of the data to only include what's expected by the backend
+  const filteredData = {
+    name: data.name,
+    vertical: data.vertical,
+    stage: data.stage,
+    location: data.location,
+    status: data.status || "active",
+    currency: data.currency || "USD",
+    firstContactDate: data.firstContactDate,
+    primaryContact: data.primaryContact
+  };
+
+  // Only include amountSought if it exists and is a number
+  if (data.amountSought !== undefined && data.amountSought !== null && !isNaN(Number(data.amountSought))) {
+    filteredData.amountSought = Number(data.amountSought);
+  }
+
+  // Only include description if it exists and isn't empty
+  if (data.description) {
+    filteredData.description = data.description;
+  }
+
+  try {
+    const response = await apiRequest('POST', '/api/startups', filteredData);
+    return response.json();
+  } catch (error) {
+    console.error("Error in createStartup:", error);
+    throw error;
+  }
 };
 
 export const fetchDueDiligenceProgress = async (id: string) => {
