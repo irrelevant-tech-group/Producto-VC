@@ -11,10 +11,11 @@ import {
   jsonb,
   real,
   pgEnum,
-  vector
+  vector,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
 
 // Enums
 export const startupVerticalEnum = pgEnum('startup_vertical', [
@@ -92,7 +93,7 @@ export const startups = pgTable("startups", {
   lastInteraction: timestamp("last_interaction"),
 });
 
-// Documento (Documents)
+// Documents
 export const documents = pgTable("documents", {
   id: uuid("id").primaryKey().defaultRandom(),
   startupId: uuid("startup_id")
@@ -119,7 +120,7 @@ export const chunks = pgTable("chunks", {
     .notNull()
     .references(() => startups.id, { onDelete: 'cascade' }),
   content: text("content").notNull(),
-  embedding: vector("embedding", { dimensions: 1536 }), // ← vector agregado
+  embedding: vector("embedding", { dimensions: 1536 }),
   similarityScore: real("similarity_score"),
   metadata: jsonb("metadata"),
 });
@@ -188,3 +189,25 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
 
 // Esquema de validación para inserción de Startup
 export const insertStartupSchema = createInsertSchema(startups);
+
+// Esquema de validación para análisis de alineación
+export const alignmentSchema = z.object({
+  score: z.number().min(0).max(1),
+  breakdown: z.record(z.string(), z.object({
+    score: z.number(),
+    justification: z.string()
+  })),
+  recommendations: z.array(z.string())
+});
+
+// Esquema para validación de chunks
+export const chunkSchema = createInsertSchema(chunks);
+
+// Esquema para búsqueda vectorial
+export const vectorSearchSchema = z.object({
+  query: z.string(),
+  startupId: z.string().uuid().optional(),
+  documentId: z.string().uuid().optional(),
+  limit: z.number().int().min(1).max(100).default(10),
+  similarityThreshold: z.number().min(0).max(1).default(0.7)
+});

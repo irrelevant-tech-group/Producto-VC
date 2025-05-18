@@ -1,3 +1,5 @@
+// server/services/openai.ts
+
 import OpenAI from "openai";
 import {
   AiQueryRequest,
@@ -7,7 +9,7 @@ import {
 } from "@shared/types";
 import { storage } from "../storage";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+// El modelo más reciente es "gpt-4o" lanzado el 13 de mayo, 2024
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
@@ -24,27 +26,53 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     // Limitar tamaño para evitar exceder límites de API
     const truncatedText = text.slice(0, 8000);
     
-    // Llamada a API con modelo correcto y configuración explícita
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-large",
-      input: truncatedText,
-      encoding_format: "float",
-      dimensions: 1536 // Dimensión específica para pgvector
-    });
+    // Implementar retry logic con backoff exponencial para mejorar resiliencia
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError: any = null;
     
-    if (!response.data || response.data.length === 0) {
-      throw new Error("No se recibieron embeddings de la API de OpenAI");
+    while (attempts < maxAttempts) {
+      try {
+        // Llamada a API con modelo correcto y configuración explícita
+        const response = await openai.embeddings.create({
+          model: "text-embedding-3-large",
+          input: truncatedText,
+          encoding_format: "float",
+          dimensions: 1536 // Dimensión específica para pgvector
+        });
+        
+        if (!response.data || response.data.length === 0) {
+          throw new Error("No se recibieron embeddings de la API de OpenAI");
+        }
+        
+        return response.data[0].embedding;
+      } catch (error: any) {
+        lastError = error;
+        attempts++;
+        
+        // Si hay errores de tasa o temporales, esperar antes de reintentar
+        if (error.response?.status === 429 || error.response?.status === 500) {
+          const delay = Math.pow(2, attempts) * 1000; // backoff exponencial: 2s, 4s, 8s
+          console.log(`Reintentando embedding en ${delay}ms (intento ${attempts}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          // Para otros errores, no reintentar
+          break;
+        }
+      }
     }
     
-    return response.data[0].embedding;
-  } catch (error: any) {
+    // Si llegamos aquí sin retornar, todos los intentos fallaron
     // Mejorar manejo de errores específicos
-    if (error.response?.status === 429) {
+    if (lastError?.response?.status === 429) {
       throw new Error("Límite de tasa de API excedido. Reintentar después");
-    } else if (error.response?.status === 500) {
+    } else if (lastError?.response?.status === 500) {
       throw new Error("Error del servidor de OpenAI. Reintentar después");
     }
     
+    console.error("Error al generar embedding:", lastError);
+    throw new Error(`No se pudo generar embedding: ${lastError?.message || 'Error desconocido'}`);
+  } catch (error: any) {
     console.error("Error al generar embedding:", error);
     throw new Error(`No se pudo generar embedding: ${error.message}`);
   }
@@ -109,11 +137,13 @@ export async function processQuery(
     // Recuperar chunks relevantes ya ordenados por similitud
     let relevantChunks: any[] = [];
     const effectiveStartupId = startupId === "all" ? undefined : startupId;
+    
+    // Priorizar búsqueda vectorial, pero tener fallback a búsqueda de texto
     if (questionEmbedding) {
       relevantChunks = await storage.searchChunksByEmbedding(
         questionEmbedding,
         effectiveStartupId,
-        5
+        8  // Aumentar de 5 a 8 para tener más contexto
       );
       console.log(
         `Seleccionados ${relevantChunks.length} chunks por búsqueda vectorial`
@@ -122,7 +152,7 @@ export async function processQuery(
       relevantChunks = await storage.searchChunks(
         question,
         effectiveStartupId,
-        5
+        8
       );
       console.log(
         `Seleccionados ${relevantChunks.length} chunks por búsqueda de texto`
@@ -144,9 +174,11 @@ export async function processQuery(
         const sourceName = chunk.metadata?.source || "Documento sin nombre";
         const sourceType = chunk.metadata?.documentType || "desconocido";
         const pageInfo = chunk.metadata?.page ? ` (página ${chunk.metadata.page})` : "";
+        const dateInfo = chunk.metadata?.extractedAt ? 
+          ` [extraído: ${new Date(chunk.metadata.extractedAt).toLocaleDateString()}]` : "";
         const chunkIndex = index + 1;
         
-        return `[FUENTE ${chunkIndex}] "${sourceName}" (${sourceType})${pageInfo}:\n${chunk.content}`;
+        return `[FUENTE ${chunkIndex}] "${sourceName}" (${sourceType})${pageInfo}${dateInfo}:\n${chunk.content}`;
       })
       .join("\n\n");
     
@@ -166,15 +198,16 @@ export async function processQuery(
             "donde X es el número de la fuente de donde obtienes la información. Esto es crucial para mantener la trazabilidad " +
             "de la información. Cada afirmación importante debe incluir su fuente correspondiente. " +
             "\n\nEstructura tus respuestas de manera clara, con datos concretos y análisis pertinente para decisiones de inversión. " +
-            "Utiliza lenguaje profesional pero accesible. Si detectas inconsistencias en los datos, señálalas."
+            "Utiliza lenguaje profesional pero accesible. Si detectas inconsistencias en los datos entre fuentes, señálalas. " +
+            "Sé objetivo en tu análisis, resaltando tanto aspectos positivos como riesgos."
         },
         {
           role: "user",
           content: `Contexto sobre el startup:\n\n${context}\n\nPregunta: ${question}`
         }
       ],
-      temperature: 0.3, // Menor temperatura para respuestas más precisas
-      max_tokens: 800,
+      temperature: 0.2, // Menor temperatura para respuestas más precisas y consistentes
+      max_tokens: 1000, // Aumentado para permitir respuestas más completas
     });
 
     const answer =
@@ -197,7 +230,13 @@ export async function processQuery(
               (chunk.similarityScore as number) ||
               0,
             sourceIndex: index + 1, // Para mapear con las citas en la respuesta
-            metadata: chunk.metadata || {} // Incluir metadatos adicionales
+            metadata: {
+              ...chunk.metadata || {},
+              extractedAt: chunk.metadata?.extractedAt || null,
+              pageInfo: chunk.metadata?.page || null,
+              chunkIndex: chunk.metadata?.chunkIndex || null,
+              documentUploadedAt: document?.uploadedAt || null,
+            }
           };
         })
       );
@@ -214,7 +253,9 @@ export async function processQuery(
         content: question,
         metadata: {
           chunksUsed: relevantChunks.length,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          embeddingUsed: !!questionEmbedding,
+          queryResponseTime: Date.now() - performance.now(), // Tiempo aproximado de respuesta
         }
       });
     } catch (activityError) {
@@ -247,7 +288,14 @@ export async function analyzeStartupAlignment(
     
     // Obtener datos necesarios
     const documents = await storage.getDocumentsByStartup(startupId);
-    const allChunks = await storage.searchChunks("", startupId, 30);
+    
+    // Si no hay documentos suficientes, alertar
+    if (documents.length < 2) {
+      console.log(`Advertencia: Solo ${documents.length} documentos disponibles para análisis de ${startupId}. El análisis puede ser limitado.`);
+    }
+    
+    // Obtener chunks, priorizando documentos importantes
+    const allChunks = await storage.searchChunks("", startupId, 50);
     
     // Definir criterios con pesos
     const criteria = {
@@ -259,11 +307,14 @@ export async function analyzeStartupAlignment(
       businessModel: { weight: 0.10, score: 0, justification: "" }
     };
     
+    // Extraer entidades importantes de los chunks antes del análisis principal
+    const entitySummary = await extractKeyEntitiesFromChunks(allChunks);
+    
     // Concatenar contenido relevante para análisis
     const documentContent = allChunks
       .map(chunk => chunk.content)
       .join("\n\n")
-      .slice(0, 15000); // Limitar tamaño para API
+      .slice(0, 20000); // Aumentado de 15000 a 20000 para más contexto
     
     // Tesis de inversión de H20 Capital
     const investmentThesis = `
@@ -274,8 +325,12 @@ export async function analyzeStartupAlignment(
       modelo de negocio escalable, y métricas de tracción iniciales prometedoras.
     `;
     
-    // Analizar cada criterio utilizando IA
+    // Analizar cada criterio utilizando IA con información de entidades preextraídas
     try {
+      // Incluir información de entidades extraídas para enriquecer el contexto
+      const entityContext = entitySummary ? 
+        `\nENTIDADES CLAVE DETECTADAS:\n${JSON.stringify(entitySummary, null, 2)}` : '';
+      
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -284,7 +339,9 @@ export async function analyzeStartupAlignment(
             content: 
               "Eres un analista experto en capital de riesgo con especialidad en evaluación de startups. " +
               "Tu tarea es evaluar un startup comparándolo con la tesis de inversión proporcionada y " +
-              "asignar puntuaciones (0-100) a cada criterio con justificaciones detalladas."
+              "asignar puntuaciones (0-100) a cada criterio con justificaciones detalladas. " +
+              "Sé objetivo y crítico, evaluando tanto potencial como riesgos. " +
+              "Usa un formato JSON estructurado para tu respuesta."
           },
           {
             role: "user",
@@ -297,6 +354,7 @@ export async function analyzeStartupAlignment(
               Vertical: ${startup.vertical}
               Etapa: ${startup.stage}
               Ubicación: ${startup.location}
+              ${entityContext}
               
               INFORMACIÓN DEL STARTUP:
               ${documentContent}
@@ -311,14 +369,27 @@ export async function analyzeStartupAlignment(
               
               Para cada criterio, proporciona:
               - Puntuación (0-100)
-              - Justificación detallada
-              - Fortalezas y debilidades
+              - Justificación detallada (2-3 oraciones)
+              - Dos fortalezas principales y dos debilidades principales
               
-              Devuelve tu análisis en formato JSON.
+              Incluye también:
+              - Tres recomendaciones específicas para mejorar
+              - Tres factores clave de riesgo para este startup
+              
+              Devuelve tu análisis en formato JSON siguiendo esta estructura:
+              {
+                "criteria": {
+                  "sector": { "score": 0, "justification": "", "strengths": [], "weaknesses": [] },
+                  "marketPotential": { "score": 0, "justification": "", "strengths": [], "weaknesses": [] },
+                  ...
+                },
+                "recommendations": ["rec1", "rec2", "rec3"],
+                "riskFactors": ["risk1", "risk2", "risk3"]
+              }
             `
           }
         ],
-        temperature: 0.2,
+        temperature: 0.1, // Menor temperatura para respuestas más consistentes
         response_format: { type: "json_object" }
       });
 
@@ -331,6 +402,7 @@ export async function analyzeStartupAlignment(
         score: 0,
         breakdown: {},
         recommendations: [],
+        riskFactors: [],
         strengths: [],
         weaknesses: []
       };
@@ -358,41 +430,57 @@ export async function analyzeStartupAlignment(
         }
       });
       
-      // Recomendaciones finales
+      // Recomendaciones y factores de riesgo
       results.recommendations = analysisResult.recommendations || [];
-      results.score = Math.min(Math.max(finalScore, 0), 1); // Asegurar entre 0 y 1
+      results.riskFactors = analysisResult.riskFactors || [];
+      
+      // Asegurar entre 0 y 1, redondeando a 2 decimales para claridad
+      results.score = Math.round(Math.min(Math.max(finalScore, 0), 1) * 100) / 100;
       
       // Actualizar score en la base de datos
-      await storage.updateStartup(startupId, { alignmentScore: results.score });
+      await storage.updateStartup(startupId, { 
+        alignmentScore: results.score,
+        lastAnalyzedAt: new Date().toISOString(),
+        analysisMetadata: {
+          criteria: results.breakdown,
+          recommendationCount: results.recommendations.length,
+          documentCount: documents.length,
+          chunkCount: allChunks.length
+        }
+      });
       
       return results;
     } catch (error) {
       console.error("Error en análisis de alineamiento con IA:", error);
       
       // Fallback a método tradicional si falla el análisis con IA
+      // Este método es simple pero robusto para emergencias
       const preferredVerticals = ["fintech", "saas", "ai", "marketplace"];
-      const verticalScore = preferredVerticals.includes(startup.vertical) ? 0.15 : 0.05;
+      const verticalScore = preferredVerticals.includes(startup.vertical.toLowerCase()) ? 0.15 : 0.05;
       
       const stageScores: Record<string, number> = {
         "pre-seed": 0.15,
         "seed": 0.15,
         "series-a": 0.05,
       };
-      const stageScore = stageScores[startup.stage] || 0;
+      const stageScore = stageScores[startup.stage.toLowerCase()] || 0;
       
       const docsScore = Math.min(documents.length / 15, 0.1);
       
       let alignmentScore = verticalScore + stageScore + docsScore;
       alignmentScore = Math.min(Math.max(alignmentScore, 0), 1);
       
-      await storage.updateStartup(startupId, { alignmentScore });
+      await storage.updateStartup(startupId, { 
+        alignmentScore,
+        lastAnalyzedAt: new Date().toISOString(),
+      });
       
       return {
         score: alignmentScore,
         breakdown: {
-          sector: { score: verticalScore * 100, justification: "Método fallback" },
-          stage: { score: stageScore * 100, justification: "Método fallback" },
-          documents: { score: docsScore * 100, justification: "Método fallback" }
+          sector: { score: verticalScore * 100, justification: "Alineación de sector (método fallback)" },
+          stage: { score: stageScore * 100, justification: "Etapa de inversión (método fallback)" },
+          documents: { score: docsScore * 100, justification: "Cantidad de documentos (método fallback)" }
         },
         recommendations: ["Añadir más documentos para un análisis detallado"]
       };
@@ -400,6 +488,56 @@ export async function analyzeStartupAlignment(
   } catch (error) {
     console.error("Error al analizar alineamiento del startup:", error);
     throw new Error("No se pudo analizar el alineamiento del startup con la tesis de inversión.");
+  }
+}
+
+/**
+ * Extrae entidades clave de un conjunto de chunks para enriquecer el análisis
+ */
+async function extractKeyEntitiesFromChunks(chunks: any[]): Promise<any> {
+  if (!chunks || chunks.length === 0) return null;
+  
+  try {
+    // Tomar una muestra representativa de chunks para análisis
+    const sampleSize = Math.min(chunks.length, 10);
+    const selectedChunks = chunks.slice(0, sampleSize);
+    
+    // Concatenar contenido con límite para API
+    const combinedContent = selectedChunks
+      .map(chunk => chunk.content)
+      .join("\n\n")
+      .slice(0, 10000);
+    
+    // Usar OpenAI para extraer entidades clave
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `
+            Extrae entidades clave del siguiente texto sobre un startup. Devuelve JSON con estas categorías:
+            - people: Personas mencionadas con sus roles/cargos
+            - organizations: Organizaciones mencionadas (competidores, partners, inversores)
+            - metrics: Métricas financieras y de tracción (ARR, MRR, CAC, LTV, etc.)
+            - technologies: Tecnologías o plataformas utilizadas
+            - locations: Ubicaciones geográficas relevantes
+            
+            Sé conciso y específico. Solo incluye información presente en el texto.
+          `
+        },
+        {
+          role: "user",
+          content: combinedContent
+        }
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
+    
+    return JSON.parse(response.choices[0].message.content || "{}");
+  } catch (error) {
+    console.error("Error extrayendo entidades de chunks:", error);
+    return null; // Fallo silencioso, no bloqueamos el flujo principal
   }
 }
 
@@ -435,7 +573,14 @@ export async function generateMemoSection(
       const scored = await Promise.all(
         allChunks.map(async (chunk: any) => {
           try {
-            const chunkEmbedding = await generateEmbedding(chunk.content);
+            // Usar embedding prexistente si está disponible, de lo contrario generar nuevo
+            let chunkEmbedding;
+            if (chunk.embedding && Array.isArray(chunk.embedding) && chunk.embedding.length > 0) {
+              chunkEmbedding = chunk.embedding;
+            } else {
+              chunkEmbedding = await generateEmbedding(chunk.content);
+            }
+            
             const sim = calculateCosineSimilarity(
               sectionEmbedding,
               chunkEmbedding
@@ -453,8 +598,8 @@ export async function generateMemoSection(
       console.log(
         `Seleccionados ${relevantChunks.length} chunks por similitud semántica`
       );
-    } catch {
-      console.error("Error al usar embeddings para la sección");
+    } catch (error) {
+      console.error("Error al usar embeddings para la sección:", error);
       relevantChunks = await storage.searchChunks(section, startupId, 15);
     }
 
@@ -472,13 +617,18 @@ export async function generateMemoSection(
       })
       .join("\n\n");
 
+    // Mejorar prompt para generar contenido de mayor calidad
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
           content:
-            "Eres un analista de inversiones. Genera contenido profesional para la sección solicitada, cita fuentes cuando sea posible.",
+            "Eres un analista de inversiones experto en capital de riesgo. " +
+            "Genera contenido profesional, objetivo y detallado para la sección solicitada del memo de inversión. " +
+            "Usa un tono analítico, apoyándote solo en datos concretos del contexto, sin especulaciones. " +
+            "Cita fuentes cuando sea posible. Organiza el contenido con subtítulos si es apropiado. " +
+            "No inventes información. Si los datos son insuficientes, indícalo claramente."
         },
         {
           role: "user",
@@ -486,14 +636,18 @@ export async function generateMemoSection(
 - Nombre: ${startup.name}
 - Sector: ${startup.vertical}
 - Etapa: ${startup.stage}
+- Ubicación: ${startup.location || "No especificada"}
 
-SECCIÓN: ${section}
+SECCIÓN DE MEMO DE INVERSIÓN: ${section}
 
-Contexto:
-${context}`,
+Contexto extraído de documentos:
+${context}
+
+Genera un contenido profesional y analítico para esta sección del memo de inversión.
+Estructura el texto adecuadamente y mantén un enfoque equilibrado que destaque tanto oportunidades como riesgos.`
         },
       ],
-      max_tokens: 1200,
+      max_tokens: 1500, // Aumentado para secciones más detalladas
     });
 
     const content =
@@ -506,7 +660,9 @@ ${context}`,
         return {
           documentId: chunk.documentId,
           documentName: doc?.name || "Documento sin nombre",
-          content: chunk.content.substring(0, 150) + "...",
+          documentType: doc?.type || "Desconocido",
+          uploadedAt: doc?.uploadedAt || null,
+          content: chunk.content.substring(0, 180) + "...", // Ampliado para más contexto
           relevanceScore:
             (chunk.semanticScore as number) ||
             (chunk.similarityScore as number) ||
@@ -520,6 +676,7 @@ ${context}`,
       content,
       sources,
       lastEdited: new Date().toISOString(),
+      generatedBy: "gpt-4o"
     };
   } catch (error) {
     console.error(`Error al generar la sección ${section}:`, error);
@@ -527,6 +684,8 @@ ${context}`,
       title: section,
       content:
         "Error al generar esta sección. Por favor, intenta nuevamente más tarde.",
+      lastEdited: new Date().toISOString(),
+      error: error instanceof Error ? error.message : "Error desconocido"
     };
   }
 }

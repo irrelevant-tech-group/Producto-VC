@@ -39,6 +39,7 @@ app.use((req, res, next) => {
 
 async function initializeServer() {
   try {
+    // Validar la conexión a la base de datos primero
     const isConnected = await testDatabaseConnection();
 
     if (!isConnected) {
@@ -46,7 +47,10 @@ async function initializeServer() {
       process.exit(1);
     }
 
+    // Inicializar extensión pgvector y crear índices necesarios
+    console.log("Inicializando extensión pgvector y creando índices HNSW...");
     await createHnswIndexIfNeeded();
+    console.log("Inicialización de pgvector completada");
 
     const server = await registerRoutes(app);
 

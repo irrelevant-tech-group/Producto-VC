@@ -4,10 +4,10 @@ import { storage } from "../storage";
 import { Document, InsertChunk } from "@shared/schema";
 import { DocumentProcessingResult } from "@shared/types";
 import OpenAI from "openai";
-import { analyzeStartupAlignment } from "./openai";
+import { analyzeStartupAlignment, generateEmbedding } from "./openai";
 import * as fs from "fs";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+// Usando gpt-4o como modelo actual según la nota del código original
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
@@ -120,7 +120,7 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
   const chunks = splitIntoChunks(content);
   console.log(`Dividido en ${chunks.length} chunks`);
 
-  // Nuevo: Extracción de entidades del contenido completo
+  // Extracción de entidades del contenido completo
   let entities = {};
   try {
     entities = await extractEntities(content);
@@ -157,6 +157,7 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     };
 
     try {
+      // Generar embedding para el chunk usando el servicio de OpenAI
       await storage.createChunkWithEmbedding(chunkRecord, chunkText);
     } catch (err: any) {
       console.error(`Error embedding chunk ${i}:`, err);
@@ -234,7 +235,7 @@ async function extractFromPDF(buffer: Buffer): Promise<string> {
       return text;
     } catch (secondErr) {
       console.error("Error secundario en extracción PDF:", secondErr);
-      return "Error al extraer texto del PDF. El documento puede estar dañado o contener protección.";
+      throw new Error("Error al extraer texto del PDF. El documento puede estar dañado o contener protección.");
     }
   }
 }
@@ -249,24 +250,36 @@ async function extractFromDOCX(buffer: Buffer): Promise<string> {
     return result.value;
   } catch (err) {
     console.error("Error en extracción DOCX:", err);
-    return "Error al extraer texto del documento DOCX.";
+    throw new Error("Error al extraer texto del documento DOCX.");
   }
 }
 
 /**
- * XLSX: mejora con manejo de errores
+ * XLSX: mejora con manejo de errores y opciones avanzadas
  */
 async function extractFromXLSX(buffer: Buffer): Promise<string> {
   try {
     const XLSX = await import("xlsx");
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    // Usar opciones avanzadas para preservar más información
+    const workbook = XLSX.read(buffer, { 
+      type: "buffer",
+      cellDates: true,  // Preservar fechas
+      cellNF: true,     // Preservar formato numérico
+      cellStyles: true  // Preservar estilos
+    });
     
     let text = "";
     workbook.SheetNames.forEach(name => {
       const sheet = workbook.Sheets[name];
       text += `Hoja: ${name}\n`;
       
-      const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      // Convertir a formato JSON para mejor procesamiento
+      const json = XLSX.utils.sheet_to_json(sheet, { 
+        header: 1,
+        raw: false,  // Convertir a strings para mantener consistencia
+        dateNF: 'yyyy-mm-dd' // Formato para fechas
+      });
+      
       json.forEach((row: any) => {
         if (row && row.length) {
           text += row.join(", ") + "\n";
@@ -278,29 +291,93 @@ async function extractFromXLSX(buffer: Buffer): Promise<string> {
     return text;
   } catch (err) {
     console.error("Error en extracción XLSX:", err);
-    return "Error al extraer texto de la hoja de cálculo.";
+    throw new Error("Error al extraer texto de la hoja de cálculo.");
   }
 }
 
 /**
- * Nueva función: Extracción de PPTX
+ * Extracción de PPTX mejorada
  */
 async function extractFromPPTX(buffer: Buffer): Promise<string> {
-  // Nota: Para una implementación real, considera usar bibliotecas como pptx-parser
-  return "Contenido extraído de presentación PowerPoint. Para soporte completo de PPTX, integre una biblioteca especializada.";
+  try {
+    // Intentamos usar pptx-parser si está disponible
+    try {
+      const pptxParser = await import("pptx-parser");
+      const result = await pptxParser.default.extract(buffer);
+      let text = "";
+      
+      // Procesar diapositivas y su contenido
+      if (result && result.slides) {
+        result.slides.forEach((slide: any, index: number) => {
+          text += `Diapositiva ${index + 1}:\n`;
+          
+          // Extraer texto de los elementos
+          if (slide.elements) {
+            slide.elements.forEach((element: any) => {
+              if (element.type === 'text' && element.text) {
+                text += element.text + "\n";
+              }
+            });
+          }
+          
+          text += "\n";
+        });
+      }
+      
+      return text;
+    } catch (importErr) {
+      // Si no podemos importar pptx-parser, usamos un método alternativo
+      console.warn("pptx-parser no disponible, usando extracción alternativa:", importErr);
+      
+      // Intento alternativo: PPTX como archivo ZIP con XMLs
+      const JSZip = await import("jszip");
+      const zip = new JSZip();
+      
+      const content = await zip.loadAsync(buffer);
+      const slideFiles = Object.keys(content.files).filter(name => 
+        name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
+      );
+      
+      let text = "";
+      for (const slideFile of slideFiles) {
+        const slideXml = await content.files[slideFile].async('text');
+        
+        // Extraer texto usando regex simple (para una implementación real sería mejor usar un parser XML)
+        const textMatches = slideXml.match(/<a:t>([^<]+)<\/a:t>/g);
+        if (textMatches) {
+          const slideNumber = slideFile.match(/slide(\d+)\.xml/)?.[1] || '?';
+          text += `Diapositiva ${slideNumber}:\n`;
+          
+          textMatches.forEach(match => {
+            const content = match.replace(/<a:t>|<\/a:t>/g, '');
+            if (content.trim()) {
+              text += content.trim() + "\n";
+            }
+          });
+          
+          text += "\n";
+        }
+      }
+      
+      return text || "Contenido extraído de presentación PowerPoint.";
+    }
+  } catch (err) {
+    console.error("Error en extracción PPTX:", err);
+    return "Contenido extraído de presentación PowerPoint. Para soporte completo de PPTX, integre una biblioteca especializada.";
+  }
 }
 
 /**
  * Contenido simulado si no hay URL de archivo
  */
 function generateMockContent(document: Document): string {
-  return `${document.name} - Contenido simulado para ${document.type}`;
+  return `${document.name} - Contenido simulado para ${document.type} - Generado el ${new Date().toISOString()}`;
 }
 
 /**
- * Divide en chunks semánticos mejorado para manejar mejor párrafos largos
+ * Divide en chunks semánticos mejorado para manejar mejor párrafos largos y preservar contexto
  */
-function splitIntoChunks(content: string, maxChunkSize = 1000): string[] {
+function splitIntoChunks(content: string, maxChunkSize = 1000, overlapSize = 100): string[] {
   // Dividir por párrafos primero
   const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 0);
   const chunks: string[] = [];
@@ -322,7 +399,8 @@ function splitIntoChunks(content: string, maxChunkSize = 1000): string[] {
       for (const sentence of sentences) {
         if (sentenceChunk.length + sentence.length > maxChunkSize) {
           chunks.push(sentenceChunk.trim());
-          sentenceChunk = sentence;
+          // Agregar overlap para mantener contexto
+          sentenceChunk = getLastNChars(sentenceChunk, overlapSize) + sentence;
         } else {
           sentenceChunk += (sentenceChunk ? " " : "") + sentence;
         }
@@ -334,7 +412,8 @@ function splitIntoChunks(content: string, maxChunkSize = 1000): string[] {
     } else if (currentChunk.length + paragraph.length > maxChunkSize) {
       // Si añadir este párrafo excede el límite, guardar el chunk actual y empezar uno nuevo
       chunks.push(currentChunk.trim());
-      currentChunk = paragraph;
+      // Agregar overlap desde el final del chunk anterior
+      currentChunk = getLastNChars(currentChunk, overlapSize) + paragraph;
     } else {
       // Añadir el párrafo al chunk actual
       if (currentChunk) currentChunk += "\n\n";
@@ -351,9 +430,33 @@ function splitIntoChunks(content: string, maxChunkSize = 1000): string[] {
 }
 
 /**
- * Nueva función: Extracción de entidades con OpenAI
+ * Función helper para obtener los últimos N caracteres con sentido semántico
+ */
+function getLastNChars(text: string, n: number): string {
+  if (!text || n <= 0) return "";
+  if (text.length <= n) return text;
+  
+  // Intentar cortar en un espacio para no romper palabras
+  const lastPart = text.slice(-n * 2); // Tomar un poco más para encontrar un buen punto de corte
+  const spaceIndex = lastPart.indexOf(' ', lastPart.length - n);
+  
+  if (spaceIndex >= 0) {
+    return lastPart.slice(spaceIndex + 1);
+  }
+  
+  // Si no hay un buen punto de corte, simplemente tomar los últimos n caracteres
+  return text.slice(-n);
+}
+
+/**
+ * Extracción de entidades con OpenAI
  */
 async function extractEntities(text: string): Promise<any> {
+  // Si el texto es muy largo, tomamos solo una muestra representativa
+  const sampleText = text.length > 8000 ? 
+    text.substring(0, 4000) + "\n\n[...]\n\n" + text.substring(text.length - 4000) : 
+    text;
+  
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -363,31 +466,56 @@ async function extractEntities(text: string): Promise<any> {
           content: `
             Extrae entidades clave del siguiente texto. Devuelve JSON con estas categorías:
             - people: Personas mencionadas con sus roles/cargos
-            - organizations: Organizaciones mencionadas (competidores, partners)
-            - metrics: Métricas financieras y de tracción (ARR, MRR, CAC, etc.)
-            - keypoints: Puntos clave sobre el startup
+            - organizations: Organizaciones mencionadas (competidores, partners, inversores)
+            - metrics: Métricas financieras y de tracción (ARR, MRR, CAC, LTV, tasas de crecimiento, etc.)
+            - keypoints: Puntos clave sobre el startup (máximo 5 puntos, los más relevantes)
+            - products: Productos o servicios mencionados
+            - technologies: Tecnologías o frameworks utilizados
             
             Utiliza un formato como:
             {
               "people": [{"name": "Nombre", "role": "Cargo"}],
-              "organizations": [{"name": "Nombre", "type": "competitor|partner|investor"}],
-              "metrics": [{"name": "Métrica", "value": "Valor", "unit": "Unidad"}],
-              "keypoints": ["Punto 1", "Punto 2"]
+              "organizations": [{"name": "Nombre", "type": "competitor|partner|investor|customer"}],
+              "metrics": [{"name": "Métrica", "value": "Valor", "unit": "Unidad", "context": "Contexto adicional"}],
+              "keypoints": ["Punto 1", "Punto 2"],
+              "products": [{"name": "Nombre", "description": "Descripción breve"}],
+              "technologies": ["Tecnología 1", "Tecnología 2"]
             }
+            
+            Sé específico y conciso. Si no encuentras información en alguna categoría, devuelve un array vacío.
           `
         },
         {
           role: "user",
-          content: text
+          content: sampleText
         }
       ],
       temperature: 0.1,
       response_format: { type: "json_object" }
     });
     
-    return JSON.parse(response.choices[0].message.content || "{}");
+    // Validar y parsear la respuesta
+    const content = response.choices[0].message.content || "{}";
+    const parsed = JSON.parse(content);
+    
+    // Asegurar que todas las categorías existan, incluso si están vacías
+    return {
+      people: parsed.people || [],
+      organizations: parsed.organizations || [],
+      metrics: parsed.metrics || [],
+      keypoints: parsed.keypoints || [],
+      products: parsed.products || [],
+      technologies: parsed.technologies || []
+    };
   } catch (error) {
     console.error("Error extrayendo entidades:", error);
-    return { people: [], organizations: [], metrics: [], keypoints: [] };
+    return { 
+      people: [], 
+      organizations: [], 
+      metrics: [], 
+      keypoints: [], 
+      products: [], 
+      technologies: [] 
+    };
   }
 }

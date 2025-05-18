@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { processDocument } from "./services/documentProcessor";
+import { nanoid } from "nanoid"; // Para IDs únicos
 
 // Configuración de multer para manejo de archivos
 const upload = multer({
@@ -19,35 +20,67 @@ const upload = multer({
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'text/plain',
-      'text/csv'
+      'text/csv',
+      'application/rtf',  // Añadido soporte para RTF
+      'text/markdown',    // Añadido soporte para markdown
+      'application/json'  // Añadido soporte para JSON
     ];
     
     if (allowedTypes.includes(file.mimetype)) {
       callback(null, true);
     } else {
-      callback(new Error(`Tipo de archivo no soportado: ${file.mimetype}. Tipos permitidos: PDF, DOCX, XLSX, PPTX, TXT, CSV`));
+      callback(new Error(`Tipo de archivo no soportado: ${file.mimetype}. Tipos permitidos: PDF, DOCX, XLSX, PPTX, TXT, CSV, RTF, MD, JSON`));
     }
   }
 });
 
-// Middleware para procesar la carga de documentos
+// Middleware para manejar la carga de multer
+export const uploadMiddleware = upload.single('file');
+
+// Middleware de validación de datos
+export function validateUploadData(req: Request, res: Response, next: NextFunction) {
+  if (!req.file) {
+    return res.status(400).json({ 
+      error: "missing_file", 
+      message: "No se ha subido ningún archivo" 
+    });
+  }
+  
+  const { startupId, type } = req.body;
+  
+  if (!startupId) {
+    return res.status(400).json({ 
+      error: "missing_startup_id", 
+      message: "El ID de startup es obligatorio" 
+    });
+  }
+  
+  if (!type) {
+    return res.status(400).json({ 
+      error: "missing_type", 
+      message: "El tipo de documento es obligatorio" 
+    });
+  }
+  
+  next();
+}
+
+// Handler principal para procesar la carga de documentos
 export async function uploadDocumentHandler(req: Request, res: Response, next: NextFunction) {
+  const startTime = Date.now();
+  let filePath: string | null = null;
+  
   try {
-    // Validar parámetros requeridos
-    if (!req.file) {
-      return res.status(400).json({ message: "No se ha subido ningún archivo" });
-    }
-    
-    const { startupId, type, name, description } = req.body;
-    
-    if (!startupId || !type) {
-      return res.status(400).json({ message: "startupId y type son campos requeridos" });
-    }
+    // Las validaciones básicas ya se hicieron en validateUploadData
+    const { startupId, type, name, description, tags, confidential } = req.body;
     
     // Verificar que el startup existe
     const startup = await storage.getStartup(startupId);
     if (!startup) {
-      return res.status(404).json({ message: `Startup con ID ${startupId} no encontrado` });
+      return res.status(404).json({ 
+        error: "startup_not_found",
+        message: `Startup con ID ${startupId} no encontrado` 
+      });
     }
     
     // Crear directorio temporal para almacenar archivos si no existe
@@ -56,26 +89,40 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       fs.mkdirSync(uploadDir, { recursive: true });
     }
     
-    // Generar nombre de archivo único
-    const fileName = `${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
-    const filePath = path.join(uploadDir, fileName);
+    // Generar nombre de archivo único con nanoid para mayor seguridad
+    const uniqueId = nanoid(10);
+    const fileName = `${Date.now()}-${uniqueId}-${req.file!.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
+    filePath = path.join(uploadDir, fileName);
     
     // Guardar el archivo temporalmente
-    fs.writeFileSync(filePath, req.file.buffer);
+    fs.writeFileSync(filePath, req.file!.buffer);
     
     // En un entorno de producción, aquí subiríamos el archivo a S3 o similar
-    // Para el MVP, simularemos una URL de almacenamiento
+    // Para el MVP, usamos una URL de almacenamiento local
     const fileUrl = `file://${filePath}`;
+    
+    // Preparar metadatos extendidos
+    const metadata = {
+      description: description || "",
+      originalName: req.file!.originalname,
+      mimeType: req.file!.mimetype,
+      size: req.file!.size,
+      uploadedAt: new Date().toISOString(),
+      tags: tags ? (typeof tags === 'string' ? tags.split(',').map(t => t.trim()) : tags) : [],
+      confidential: confidential === 'true' || confidential === true,
+      uploadIp: req.ip || 'unknown',
+      uploadAgent: req.headers['user-agent'] || 'unknown'
+    };
     
     // Crear el documento en la base de datos
     const document = await storage.createDocument({
       startupId,
-      name: name || req.file.originalname,
+      name: name || req.file!.originalname,
       type: type as any,
       fileUrl,
-      fileType: req.file.mimetype,
+      fileType: req.file!.mimetype,
       uploadedBy: req.body.userId ? parseInt(req.body.userId) : undefined,
-      metadata: description ? { description } : undefined
+      metadata
     });
     
     // Registrar la actividad
@@ -84,7 +131,12 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       documentId: document.id,
       startupId,
       userId: req.body.userId ? parseInt(req.body.userId) : undefined,
-      content: `Se ha subido el documento "${document.name}"`
+      content: `Se ha subido el documento "${document.name}"`,
+      metadata: {
+        fileType: document.fileType,
+        size: req.file!.size,
+        processingTime: (Date.now() - startTime) / 1000
+      }
     });
     
     // Iniciar el procesamiento del documento en segundo plano
@@ -100,19 +152,65 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       startupId: document.startupId,
       uploadedAt: document.uploadedAt,
       processingStatus: document.processingStatus,
+      size: req.file!.size,
+      metadata: {
+        description: metadata.description,
+        tags: metadata.tags,
+        confidential: metadata.confidential
+      },
       message: "Documento subido correctamente y en proceso de análisis"
     });
     
-  } catch (error) {
+  } catch (error: any) {
     // Eliminar archivo temporal en caso de error
-    if (req.file && req.file.path) {
+    if (filePath && fs.existsSync(filePath)) {
       try {
-        fs.unlinkSync(req.file.path);
+        fs.unlinkSync(filePath);
       } catch (unlinkError) {
         console.error("Error eliminando archivo temporal:", unlinkError);
       }
     }
     
-    next(error);
+    console.error("Error en uploadDocumentHandler:", error);
+    
+    // Formatear el error para la respuesta
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "upload_failed",
+        message: error.message || "Error desconocido al subir el documento",
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    } else {
+      next(error);
+    }
   }
+}
+
+// Configuración de rutas para uso en Express
+export function setupDocumentRoutes(app: any) {
+  // Ruta para subir documentos
+  app.post('/api/documents', uploadMiddleware, validateUploadData, uploadDocumentHandler);
+  
+  // Ruta para obtener un documento
+  app.get('/api/documents/:id', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const document = await storage.getDocument(req.params.id);
+      if (!document) {
+        return res.status(404).json({ error: "document_not_found", message: "Documento no encontrado" });
+      }
+      res.json(document);
+    } catch (error) {
+      next(error);
+    }
+  });
+  
+  // Ruta para obtener documentos de un startup
+  app.get('/api/startups/:startupId/documents', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const documents = await storage.getDocumentsByStartupId(req.params.startupId);
+      res.json(documents);
+    } catch (error) {
+      next(error);
+    }
+  });
 }
