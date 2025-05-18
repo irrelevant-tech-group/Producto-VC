@@ -16,6 +16,7 @@ import {
 } from "@shared/types";
 import { generateEmbedding } from "./services/openai";
 
+
 // Nuevo tipo para consultas AI
 interface AiQuery {
   id: string;
