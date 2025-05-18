@@ -3,6 +3,21 @@
 @tailwind utilities;
 
 :root {
+  /* Color principal actualizado con un tono más vibrante */
+  --primary: 222 95% 60%;
+  --primary-foreground: 210 40% 98%;
+  
+  /* Colores de acento más saturados */
+  --accent: 250 95% 65%;
+  --accent-foreground: 210 40% 98%;
+  
+  /* Colores de éxito y error más vivos */
+  --success: 142 76% 45%;
+  --success-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  
+  /* Colores base */
   --background: 210 40% 98%;
   --foreground: 222 47% 11%;
   --muted: 210 40% 93%;
@@ -13,20 +28,37 @@
   --card-foreground: 222 47% 11%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --primary: 222 95% 60%;
-  --primary-foreground: 210 40% 98%;
   --secondary: 208 100% 97%;
   --secondary-foreground: 222 47% 20%;
-  --accent: 222 100% 70%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
-  --success: 142 76% 36%;
-  --success-foreground: 210 40% 98%;
   --ring: 222 85% 60%;
   --radius: 0.6rem;
+  
+  /* Nuevos colores para la paleta extendida */
+  --primary-light: 222 95% 95%;
+  --accent-light: 250 95% 95%;
+  --cool-gray: 220 25% 95%;
+  --warm-gray: 20 25% 92%;
+  --info: 200 90% 60%;
+  --info-light: 200 90% 90%;
+  --warning: 35 90% 60%;
+  --warning-light: 35 90% 90%;
 }
-  .dark {
+
+.dark {
+  --primary: 222 95% 70%;
+  --primary-foreground: 222 47% 11%;
+  
+  /* Colores de acento actualizados para modo oscuro */
+  --accent: 250 85% 65%;
+  --accent-foreground: 210 40% 98%;
+  
+  /* Colores de éxito y error más vivos */
+  --success: 142 76% 45%;
+  --success-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 50.6%;
+  --destructive-foreground: 210 40% 98%;
+  
+  /* Colores base */
   --background: 222 47% 9%;
   --foreground: 210 40% 98%;
   --muted: 217 32% 17%;
@@ -37,18 +69,9 @@
   --card-foreground: 210 40% 98%;
   --border: 217 32% 17%;
   --input: 217 32% 17%;
-  --primary: 222 95% 70%;
-  --primary-foreground: 222 47% 11%;
   --secondary: 217 32% 17%;
   --secondary-foreground: 210 40% 98%;
-  --accent: 222 85% 43%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 50.6%;
-  --destructive-foreground: 210 40% 98%;
-  --success: 142 76% 45%;
-  --success-foreground: 210 40% 98%;
   --ring: 224 76% 67%;
-  --radius: 0.6rem;
 }
 
 @layer base {
@@ -58,20 +81,44 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    /* Fondo con gradiente más dinámico y patrones modernos */
     background-image: 
-      radial-gradient(at 100% 100%, hsl(var(--primary) / 5%) 0px, transparent 50%),
-      radial-gradient(at 0% 0%, hsl(var(--accent) / 5%) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, hsl(var(--primary) / 10%) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsl(var(--accent) / 10%) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsl(var(--info) / 8%) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, hsl(var(--success) / 8%) 0px, transparent 50%);
+    background-attachment: fixed;
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-medium tracking-tight;
   }
+  
+  /* Textos con degradado para títulos principales */
+  h1.gradient-text {
+    @apply bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent;
+  }
+  
+  /* Títulos con efectos de subrayado */
+  h2.underline-effect {
+    @apply relative inline-block;
+  }
+  
+  h2.underline-effect::after {
+    content: '';
+    @apply absolute bottom-0 left-0 w-full h-1 bg-primary/30 rounded-full transform scale-x-0 transition-transform duration-300 origin-bottom-left;
+  }
+  
+  h2.underline-effect:hover::after {
+    @apply scale-x-100;
+  }
+}
 
-  /* Estilos mejorados para Cards y componentes principales */
+@layer components {
+  /* Estilos mejorados para Cards */
   .card {
-    @apply shadow-sm hover:shadow-md transition-shadow duration-300;
+    @apply bg-white rounded-xl border border-border shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden;
     position: relative;
-    overflow: hidden;
   }
 
   .card::before {
@@ -89,36 +136,169 @@
   .card:hover::before {
     width: 100%;
   }
-
-  /* Transiciones y animaciones sutiles */
-  .animate-in {
-    animation: fadeIn 0.4s ease-out;
+  
+  /* Card con borde de color según tipo */
+  .card-primary {
+    @apply border-l-4 border-l-primary;
   }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+  
+  .card-accent {
+    @apply border-l-4 border-l-accent;
   }
-
-  /* Estilos para botones mejorados */
+  
+  .card-success {
+    @apply border-l-4 border-l-success;
+  }
+  
+  /* Botones con estilos mejorados */
   .btn-primary {
-    @apply bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all duration-300;
+    @apply bg-primary text-primary-foreground rounded-lg shadow-md hover:shadow-lg hover:bg-primary/90 transition-all duration-300;
   }
+  
+  .btn-accent {
+    @apply bg-accent text-accent-foreground rounded-lg shadow-md hover:shadow-lg hover:bg-accent/90 transition-all duration-300;
+  }
+  
+  /* Efecto de elevación para componentes interactivos */
+  .elevate {
+    @apply transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md;
+  }
+  
+  /* Badges mejoradas */
+  .badge-pill {
+    @apply px-3 py-1 rounded-full text-xs font-medium;
+  }
+  
+  /* Fondos con patrones sutiles */
+  .bg-grid {
+    background-image: 
+      linear-gradient(to right, hsl(var(--primary) / 5%) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--primary) / 5%) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+  
+  .bg-dots {
+    background-image: radial-gradient(hsl(var(--primary) / 15%) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  
+  /* Efectos de resplandor */
+  .glow {
+    position: relative;
+  }
+  
+  .glow::after {
+    content: '';
+    position: absolute;
+    top: -15px;
+    left: -15px;
+    right: -15px;
+    bottom: -15px;
+    background: radial-gradient(circle at center, hsl(var(--primary) / 20%) 0%, transparent 70%);
+    z-index: -1;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  
+  .glow:hover::after {
+    opacity: 1;
+  }
+  
+  /* Animaciones para notificaciones */
+  @keyframes pulse-border {
+    0% { border-color: hsl(var(--primary) / 40%); }
+    50% { border-color: hsl(var(--primary) / 80%); }
+    100% { border-color: hsl(var(--primary) / 40%); }
+  }
+  
+  .pulse-border {
+    animation: pulse-border 2s infinite;
+    @apply border-2;
+  }
+  
+  /* Encabezados con líneas decorativas */
+  .fancy-heading {
+    @apply flex items-center my-4;
+  }
+  
+  .fancy-heading::before,
+  .fancy-heading::after {
+    content: '';
+    @apply flex-grow h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent;
+  }
+  
+  .fancy-heading::before {
+    @apply mr-4;
+  }
+  
+  .fancy-heading::after {
+    @apply ml-4;
+  }
+}
 
-  /* Scrollbars personalizados */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
+/* Scrollbars personalizados */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
 
-  ::-webkit-scrollbar-track {
-    @apply bg-muted;
-    border-radius: 5px;
-  }
+::-webkit-scrollbar-track {
+  @apply bg-muted rounded-full;
+}
 
-  ::-webkit-scrollbar-thumb {
-    @apply bg-primary/30 hover:bg-primary/50;
-    border-radius: 5px;
-    transition: background-color 0.3s ease;
-  }
+::-webkit-scrollbar-thumb {
+  @apply bg-gradient-to-b from-primary/50 to-accent/50 rounded-full transition-colors duration-300;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gradient-to-b from-primary/70 to-accent/70;
+}
+
+/* Efectos de selección de texto */
+::selection {
+  @apply bg-primary/20 text-primary-foreground;
+}
+
+/* Animaciones globales */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Efectos de interacción para enlaces */
+a.fancy-link {
+  @apply relative text-primary no-underline;
+}
+
+a.fancy-link::after {
+  content: '';
+  @apply absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-primary to-accent scale-x-0 origin-bottom-left transition-transform duration-300;
+}
+
+a.fancy-link:hover::after {
+  @apply scale-x-100;
+}
+
+/* Glassmorphism para contenedores */
+.glass {
+  @apply backdrop-blur-md bg-white/60 border border-white/20 shadow-lg;
+}
+
+.glass-dark {
+  @apply backdrop-blur-md bg-black/60 border border-white/10 shadow-lg;
 }
