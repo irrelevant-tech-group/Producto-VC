@@ -82,6 +82,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  });
 
+
+ app.get(`${apiRouter}/documents/:id`, async (req, res) => {
+  try {
+    const documentId = req.params.id;
+    
+    // Validar ID format
+    const isValidUUID = (id) => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    };
+    
+    if (!documentId || !isValidUUID(documentId)) {
+      return res.status(400).json({ message: "Invalid document ID format" });
+    }
+    
+    const document = await storage.getDocument(documentId);
+    
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+    
+    // Transform the document data to ensure all fields are present
+    const response = {
+      id: document.id,
+      name: document.name || 'Unnamed Document',
+      type: document.type || 'other',
+      startupId: document.startupId,
+      fileUrl: document.fileUrl,
+      fileType: document.fileType || 'application/octet-stream',
+      uploadedAt: document.uploadedAt?.toISOString() || new Date().toISOString(),
+      uploadedBy: document.uploadedBy,
+      processed: document.processingStatus === 'completed',
+      processingStatus: document.processingStatus || 'pending',
+      metadata: document.metadata || {},
+      description: document.metadata?.description || '',
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error("Error retrieving document:", error);
+    res.status(500).json({ 
+      message: "An error occurred while retrieving the document",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    });
+  }
+});
+
  // Dashboard metrics (sin cambios)
  app.get(`${apiRouter}/dashboard/metrics`, async (req: Request, res: Response) => {
    try {
@@ -508,3 +554,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
  const httpServer = createServer(app);
  return httpServer;
 }
+

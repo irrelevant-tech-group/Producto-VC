@@ -141,3 +141,9 @@ export const exportMemo = async (id: string, format: 'pdf' | 'docx' | 'slides') 
   const response = await apiRequest('POST', `/api/memos/${id}/export/${format}`, {});
   return response.json();
 };
+
+export const fetchDocument = async (id: string) => {
+  const res = await fetch(`/api/documents/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch document details');
+  return res.json();
+};

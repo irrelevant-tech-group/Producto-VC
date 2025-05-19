@@ -7,6 +7,7 @@ import * as fs from "fs";
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, BorderStyle } from 'docx';
+import { googleCloudStorage } from "./storageService";
 
 // Template for investment memos
 const DEFAULT_MEMO_TEMPLATE = [
@@ -184,6 +185,8 @@ export async function generateMemoSection(startupId: string, section: string): P
     };
   }
 }
+
+
 
 /**
  * Genera un memo de inversión completo

@@ -15,6 +15,7 @@ import DocumentUpload from "@/pages/documents/upload";
 import MemosList from "@/pages/memos/index";
 import MemoDetail from "@/pages/memos/[id]";
 import AiAssistant from "@/pages/ai-assistant";
+import DocumentDetail from "@/pages/documents/[id]";
 
 function Router() {
   return (
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/documents/upload" component={DocumentUpload} />
       <Route path="/documents" component={DocumentsList} />
       <Route path="/memos" component={MemosList} />
+      <Route path="/documents/:id" component={DocumentDetail} />
       <Route path="/memos/:id" component={MemoDetail} />
       <Route path="/ai-assistant" component={AiAssistant} />
       <Route component={NotFound} />
