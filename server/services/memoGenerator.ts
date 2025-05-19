@@ -420,21 +420,16 @@ async function exportMemoToPdf(memo: Memo, startup: Startup): Promise<string> {
       doc.text(`Confidencial - H20 Capital - Página ${i} de ${pageCount}`, 20, 285);
     }
     
-    // Guardar PDF
+    // Generar nombre de archivo
     const timestamp = new Date().toISOString().split('T')[0];
     const fileName = `${startup.name.replace(/\s+/g, '_')}_Investment_Memo_v${memo.version}_${timestamp}.pdf`;
-    const filePath = path.join(__dirname, '..', '..', 'exports', fileName);
     
-    // Asegurar que el directorio existe
-    if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
-      fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
-    }
+    // Obtener el buffer del PDF
+    const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
     
-    doc.save(filePath);
-    console.log(`PDF guardado en: ${filePath}`);
-    
-    // URL simulada para el frontend
-    const fileUrl = `/exports/${fileName}`;
+    // Subir a Google Cloud Storage
+    const fileUrl = await googleCloudStorage.uploadFile(fileName, pdfBuffer);
+    console.log(`PDF subido a Google Cloud Storage: ${fileUrl}`);
     
     return fileUrl;
   } catch (error) {
@@ -527,23 +522,16 @@ async function exportMemoToDocx(memo: Memo, startup: Startup): Promise<string> {
       }]
     });
     
-    // Guardar el documento
+    // Generar el buffer del documento
+    const buffer = await Packer.toBuffer(doc);
+    
+    // Generar nombre de archivo
     const timestamp = new Date().toISOString().split('T')[0];
     const fileName = `${startup.name.replace(/\s+/g, '_')}_Investment_Memo_v${memo.version}_${timestamp}.docx`;
-    const filePath = path.join(__dirname, '..', '..', 'exports', fileName);
     
-    // Asegurar que el directorio existe
-    if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
-      fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
-    }
-    
-    const buffer = await Packer.toBuffer(doc);
-    fs.writeFileSync(filePath, buffer);
-    
-    console.log(`DOCX guardado en: ${filePath}`);
-    
-    // URL simulada para el frontend
-    const fileUrl = `/exports/${fileName}`;
+    // Subir a Google Cloud Storage
+    const fileUrl = await googleCloudStorage.uploadFile(fileName, buffer);
+    console.log(`DOCX subido a Google Cloud Storage: ${fileUrl}`);
     
     return fileUrl;
   } catch (error) {
@@ -577,10 +565,9 @@ export async function exportMemo(memoId: string, format: 'pdf' | 'docx' | 'slide
     } else if (format === 'docx') {
       exportUrl = await exportMemoToDocx(memo, startup);
     } else if (format === 'slides') {
-      // Para slides podemos mantener la versión simulada por ahora
+      // Para slides
       const timestamp = new Date().toISOString().split('T')[0];
-      const fileName = `${startup.name.replace(/\s+/g, '_')}_slides_v${memo.version}_${timestamp}.pptx`;
-      exportUrl = `/exports/${fileName}`;
+      const fileName = `${startup.name.replace(/\s+/g, '_')}_slides_v${memo.version}_${timestamp}.txt`;
       
       // Simulación de archivo para slides
       const mockSlideContent = `
@@ -592,15 +579,10 @@ ${(memo.sections as MemoSection[]).map(section => {
 }).join('\n')}
       `;
       
-      // Guardar como texto para simular
-      const filePath = path.join(__dirname, '..', '..', 'exports', fileName.replace('.pptx', '.txt'));
-      
-      // Asegurar que el directorio existe
-      if (!fs.existsSync(path.join(__dirname, '..', '..', 'exports'))) {
-        fs.mkdirSync(path.join(__dirname, '..', '..', 'exports'), { recursive: true });
-      }
-      
-      fs.writeFileSync(filePath, mockSlideContent);
+      // Subir a Google Cloud Storage
+      const buffer = Buffer.from(mockSlideContent, 'utf-8');
+      exportUrl = await googleCloudStorage.uploadFile(fileName, buffer);
+      console.log(`Slides (simulación) subido a Google Cloud Storage: ${exportUrl}`);
     } else {
       throw new Error(`Formato no soportado: ${format}`);
     }

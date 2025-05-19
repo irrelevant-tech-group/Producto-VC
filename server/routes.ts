@@ -25,6 +25,7 @@ import {
   updateMemoSections,
   exportMemo
 } from "./services/memoGenerator";
+import { googleCloudStorage } from "./services/storageService";
 
 // ESM __dirname polyfill
 const __filename = fileURLToPath(import.meta.url);
@@ -206,6 +207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  });
 
+ // ACTUALIZADO - Implementación de Google Cloud Storage
  app.post(
    `${apiRouter}/documents/upload`,
    upload.single('file'),
@@ -215,7 +217,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
          return res.status(400).json({ message: "No file uploaded" });
        }
 
-       const { startupId, type, name } = req.body;
+       const { startupId, type, name, description, tags, confidential } = req.body;
        if (!startupId || !type) {
          return res.status(400).json({ message: "startupId and type are required" });
        }
@@ -225,19 +227,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
          return res.status(404).json({ message: `Startup with ID ${startupId} not found` });
        }
 
-       const uploadDir = path.join(__dirname, '..', 'temp_uploads');
-       if (!fs.existsSync(uploadDir)) {
-         fs.mkdirSync(uploadDir, { recursive: true });
-       }
-
+       // Generar nombre único para el archivo
        const fileExt = path.extname(req.file.originalname);
        const fileName = `${Date.now()}-${uuidv4()}${fileExt}`;
-       const filePath = path.join(uploadDir, fileName);
+       
+       // Subir archivo a Google Cloud Storage
+       console.log("Subiendo archivo a Google Cloud Storage...");
+       let fileUrl = '';
+       try {
+         fileUrl = await googleCloudStorage.uploadFile(fileName, req.file.buffer);
+         console.log(`Archivo subido exitosamente a GCS: ${fileUrl}`);
+       } catch (gcsError) {
+         console.error("Error al subir a Google Cloud Storage:", gcsError);
+         
+         // Fallback a almacenamiento local si falla GCS
+         console.warn("Usando almacenamiento local como fallback");
+         const uploadDir = path.join(__dirname, '..', 'temp_uploads');
+         if (!fs.existsSync(uploadDir)) {
+           fs.mkdirSync(uploadDir, { recursive: true });
+         }
+         
+         const filePath = path.join(uploadDir, fileName);
+         fs.writeFileSync(filePath, req.file.buffer);
+         fileUrl = `file://${filePath}`;
+         console.log(`Archivo guardado localmente como fallback: ${fileUrl}`);
+       }
 
-       fs.writeFileSync(filePath, req.file.buffer);
+       // Preparar metadatos extendidos
+       const metadata = {
+         originalName: req.file.originalname,
+         size: req.file.size,
+         uploadedAt: new Date().toISOString(),
+         description: description || "",
+         tags: tags ? (typeof tags === 'string' ? tags.split(',').map(t => t.trim()) : tags) : [],
+         confidential: confidential === 'true' || confidential === true,
+         storageProvider: fileUrl.startsWith('https://storage.googleapis.com/') ? 'google-cloud-storage' : 'local'
+       };
 
-       const fileUrl = `file://${filePath}`;
-
+       // Crear el documento en la base de datos
        const document = await storage.createDocument({
          startupId,
          name: name || req.file.originalname,
@@ -245,34 +272,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
          fileUrl,
          fileType: req.file.mimetype,
          uploadedBy: req.body.userId ? parseInt(req.body.userId) : undefined,
-         metadata: {
-           originalName: req.file.originalname,
-           size: req.file.size,
-           uploadedAt: new Date().toISOString()
-         }
+         metadata
        });
 
+       // Registrar actividad
        await storage.createActivity({
          type: 'document_uploaded',
          documentId: document.id,
          startupId,
          userId: req.body.userId ? parseInt(req.body.userId) : undefined,
-         content: `Documento "${document.name}" subido`,
+         content: `Documento "${document.name}" subido a ${metadata.storageProvider}`,
          metadata: {
            fileType: req.file.mimetype,
-           fileSize: req.file.size
+           fileSize: req.file.size,
+           storageProvider: metadata.storageProvider
          }
        });
 
+       // Iniciar procesamiento en segundo plano
        processDocument(document.id).catch(error => {
          console.error(`Error processing document ${document.id}:`, error);
        });
 
+       // Devolver respuesta exitosa
        res.status(201).json({
          ...document,
-         message: "Documento subido. El procesamiento iniciará en breve."
+         message: `Documento subido a ${metadata.storageProvider}. El procesamiento iniciará en breve.`
        });
      } catch (error: any) {
+       // Limpieza de archivos temporales en caso de error
        if (req.file) {
          try {
            const uploadDir = path.join(__dirname, '..', 'temp_uploads');

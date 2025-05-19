@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { processDocument } from "./services/documentProcessor";
 import { nanoid } from "nanoid"; // Para IDs únicos
+import { googleCloudStorage } from "./services/storageService";
 
 // Configuración de multer para manejo de archivos
 const upload = multer({
@@ -68,7 +69,7 @@ export function validateUploadData(req: Request, res: Response, next: NextFuncti
 // Handler principal para procesar la carga de documentos
 export async function uploadDocumentHandler(req: Request, res: Response, next: NextFunction) {
   const startTime = Date.now();
-  let filePath: string | null = null;
+  let fileUrl = '';
   
   try {
     // Las validaciones básicas ya se hicieron en validateUploadData
@@ -83,23 +84,12 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       });
     }
     
-    // Crear directorio temporal para almacenar archivos si no existe
-    const uploadDir = path.join(__dirname, '..', 'temp_uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
     // Generar nombre de archivo único con nanoid para mayor seguridad
     const uniqueId = nanoid(10);
-    const fileName = `${Date.now()}-${uniqueId}-${req.file!.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
-    filePath = path.join(uploadDir, fileName);
+    const fileName = `${uniqueId}-${req.file!.originalname.replace(/[^a-zA-Z0-9\.]/g, '_')}`;
     
-    // Guardar el archivo temporalmente
-    fs.writeFileSync(filePath, req.file!.buffer);
-    
-    // En un entorno de producción, aquí subiríamos el archivo a S3 o similar
-    // Para el MVP, usamos una URL de almacenamiento local
-    const fileUrl = `file://${filePath}`;
+    // Subir archivo a Google Cloud Storage
+    fileUrl = await googleCloudStorage.uploadFile(fileName, req.file!.buffer);
     
     // Preparar metadatos extendidos
     const metadata = {
@@ -111,7 +101,8 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       tags: tags ? (typeof tags === 'string' ? tags.split(',').map(t => t.trim()) : tags) : [],
       confidential: confidential === 'true' || confidential === true,
       uploadIp: req.ip || 'unknown',
-      uploadAgent: req.headers['user-agent'] || 'unknown'
+      uploadAgent: req.headers['user-agent'] || 'unknown',
+      storageProvider: 'google-cloud-storage'
     };
     
     // Crear el documento en la base de datos
@@ -135,7 +126,8 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       metadata: {
         fileType: document.fileType,
         size: req.file!.size,
-        processingTime: (Date.now() - startTime) / 1000
+        processingTime: (Date.now() - startTime) / 1000,
+        storageProvider: 'google-cloud-storage'
       }
     });
     
@@ -153,21 +145,22 @@ export async function uploadDocumentHandler(req: Request, res: Response, next: N
       uploadedAt: document.uploadedAt,
       processingStatus: document.processingStatus,
       size: req.file!.size,
+      fileUrl,
       metadata: {
         description: metadata.description,
         tags: metadata.tags,
         confidential: metadata.confidential
       },
-      message: "Documento subido correctamente y en proceso de análisis"
+      message: "Documento subido correctamente a Google Cloud Storage y en proceso de análisis"
     });
     
   } catch (error: any) {
-    // Eliminar archivo temporal en caso de error
-    if (filePath && fs.existsSync(filePath)) {
+    // Si hubo un error y se subió el archivo, intentar eliminarlo
+    if (fileUrl) {
       try {
-        fs.unlinkSync(filePath);
-      } catch (unlinkError) {
-        console.error("Error eliminando archivo temporal:", unlinkError);
+        await googleCloudStorage.deleteFile(fileUrl);
+      } catch (deleteError) {
+        console.error("Error eliminando archivo de Google Cloud Storage:", deleteError);
       }
     }
     
@@ -207,7 +200,7 @@ export function setupDocumentRoutes(app: any) {
   // Ruta para obtener documentos de un startup
   app.get('/api/startups/:startupId/documents', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const documents = await storage.getDocumentsByStartupId(req.params.startupId);
+      const documents = await storage.getDocumentsByStartup(req.params.startupId);
       res.json(documents);
     } catch (error) {
       next(error);

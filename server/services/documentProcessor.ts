@@ -92,11 +92,37 @@ export async function processDocument(documentId: string): Promise<DocumentProce
 async function extractAndProcessContent(document: Document): Promise<DocumentProcessingResult> {
   const startTime = Date.now();
 
-  // Leer buffer: local o fallback simulado
+  // Leer buffer: Google Cloud Storage, local o fallback simulado
   let buffer: Buffer;
-  if (document.fileUrl && document.fileUrl.startsWith("file://")) {
+  
+  if (document.fileUrl && document.fileUrl.startsWith("https://storage.googleapis.com/")) {
+    // Descargar desde Google Cloud Storage
+    try {
+      console.log(`Descargando archivo de Google Cloud Storage: ${document.fileUrl}`);
+      const response = await fetch(document.fileUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Error al descargar archivo: ${response.status} ${response.statusText}`);
+      }
+      
+      buffer = Buffer.from(await response.arrayBuffer());
+      console.log(`Archivo descargado correctamente de GCS (${buffer.length} bytes)`);
+    } catch (err) {
+      console.error(`Error descargando archivo de Google Cloud Storage: ${err}`);
+      const simulated = generateMockContent(document);
+      buffer = Buffer.from(simulated, "utf-8");
+    }
+  } else if (document.fileUrl && document.fileUrl.startsWith("file://")) {
+    // Mantener compatibilidad con archivos locales
     const filePath = document.fileUrl.slice("file://".length);
-    buffer = await fs.promises.readFile(filePath);
+    try {
+      buffer = await fs.promises.readFile(filePath);
+      console.log(`Archivo local leído correctamente: ${filePath} (${buffer.length} bytes)`);
+    } catch (err) {
+      console.error(`Error leyendo archivo local ${filePath}: ${err}`);
+      const simulated = generateMockContent(document);
+      buffer = Buffer.from(simulated, "utf-8");
+    }
   } else {
     console.log(`No fileUrl válido para ${document.id}, usando contenido simulado`);
     const simulated = generateMockContent(document);
@@ -148,7 +174,9 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
     fileSize: buffer.length,
     processingTime,
     contentSummary: cleanedText.substring(0, 200) + "...",
-    extractedEntities: entities
+    extractedEntities: entities,
+    storageProvider: document.fileUrl.startsWith("https://storage.googleapis.com/") ? 
+      "google-cloud-storage" : "local"
   };
 
   // Guardar chunks con embeddings, sanitizando null bytes
@@ -173,7 +201,8 @@ async function extractAndProcessContent(document: Document): Promise<DocumentPro
         source: document.name,
         documentType: document.type,
         chunkIndex: i,
-        extractedAt: metadata.extractedAt
+        extractedAt: metadata.extractedAt,
+        storageProvider: metadata.storageProvider
       }
     };
 
