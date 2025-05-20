@@ -1,4 +1,13 @@
+// queryClient.ts completo corregido
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+
+// Variable global para almacenar el token
+let authToken: string | null = null;
+
+// Función para establecer el token desde componentes React
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -14,9 +23,19 @@ export async function apiRequest(
 ): Promise<Response> {
   console.log(`Making ${method} request to ${url}`, data);
   
+  // Usar el token almacenado
+  let authHeaders = {};
+  
+  if (authToken) {
+    authHeaders = { Authorization: `Bearer ${authToken}` };
+  }
+  
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...data ? { "Content-Type": "application/json" } : {},
+      ...authHeaders
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -31,8 +50,18 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    // Usar el token almacenado
+    let authHeaders = {};
+    
+    if (authToken) {
+      authHeaders = { Authorization: `Bearer ${authToken}` };
+    }
+    
     const res = await fetch(queryKey[0] as string, {
       credentials: "include",
+      headers: {
+        ...authHeaders
+      }
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
