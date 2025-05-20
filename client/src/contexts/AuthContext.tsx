@@ -59,11 +59,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Log out the user
   const logout = async () => {
     try {
-      await signOut();
+      // Clear local user state
       setUser(null);
+      
+      // Clear auth token
       setAuthToken(null);
+      
+      // You might want to notify your backend about logout
+      try {
+        await apiRequest('POST', '/api/auth/logout', {});
+      } catch (error) {
+        console.error('Error logging out from backend:', error);
+        // Continue with Clerk logout even if backend logout fails
+      }
+      
+      // IMPORTANTE: Esta es la línea que falta - llamar a signOut de Clerk
+      await signOut();
+      
+      return Promise.resolve();
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error('Error during logout:', error);
+      return Promise.reject(error);
     }
   };
 

@@ -18,7 +18,8 @@ import {
   X,
   SlidersHorizontal,
   ArrowUpDown,
-  Loader2
+  Loader2,
+  BarChart2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -342,33 +343,53 @@ export default function StartupsList() {
                     </div>
 
                     <div className="p-5 space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <p className="flex items-center text-sm text-slate-600">
-                          <MapPin className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-                          <span className="truncate">{startup.location}</span>
-                        </p>
-                        <p className="flex items-center text-sm text-slate-600">
-                          <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-                          <span className="truncate">{startup.amountSought ? `$${startup.amountSought.toLocaleString()}` : 'Not specified'}</span>
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <p className="flex items-center text-sm text-slate-600">
-                          <FileText className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-                          <span className="truncate">{startup.documentsCount} {startup.documentsCount === 1 ? 'doc' : 'docs'}</span>
-                        </p>
-                        <p className="flex items-center text-sm text-slate-600">
-                          <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-                          <span className="truncate">
-                            {new Date(startup.lastUpdated).toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric',
-                              year: new Date(startup.lastUpdated).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
-                            })}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
+  <div className="grid grid-cols-2 gap-2">
+    <p className="flex items-center text-sm text-slate-600">
+      <MapPin className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+      <span className="truncate">{startup.location}</span>
+    </p>
+    <p className="flex items-center text-sm text-slate-600">
+      <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+      <span className="truncate">{startup.amountSought ? `$${startup.amountSought.toLocaleString()}` : 'Not specified'}</span>
+    </p>
+  </div>
+  <div className="grid grid-cols-2 gap-2">
+    <p className="flex items-center text-sm text-slate-600">
+      <FileText className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+      <span className="truncate">{startup.documentsCount} {startup.documentsCount === 1 ? 'doc' : 'docs'}</span>
+    </p>
+    {/* Reemplazar la fecha con el Alignment Score si existe */}
+    {startup.alignmentScore !== undefined ? (
+      <p className="flex items-center text-sm text-slate-600">
+        <BarChart2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+        <div className="flex items-center">
+          <div className="w-12 h-1.5 bg-slate-200 rounded-full mr-1.5">
+            <div 
+              className={`h-1.5 rounded-full ${
+                startup.alignmentScore >= 0.7 ? "bg-green-500" :
+                startup.alignmentScore >= 0.4 ? "bg-amber-500" :
+                "bg-red-500"
+              }`}
+              style={{ width: `${startup.alignmentScore * 100}%` }}
+            ></div>
+          </div>
+          <span>{Math.round(startup.alignmentScore * 100)}%</span>
+        </div>
+      </p>
+    ) : (
+      <p className="flex items-center text-sm text-slate-600">
+        <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+        <span className="truncate">
+          {new Date(startup.lastUpdated).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric',
+            year: new Date(startup.lastUpdated).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+          })}
+        </span>
+      </p>
+    )}
+  </div>
+</div>
                     
                     <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
                       <Button 

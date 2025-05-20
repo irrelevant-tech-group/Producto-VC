@@ -17,7 +17,8 @@ import {
 } from "@shared/schema";
 import {
   processQuery,
-  analyzeStartupAlignment
+  analyzeStartupAlignment,
+  enhancedStartupAlignment
 } from "./services/openai";
 import { processDocument } from "./services/documentProcessor";
 import {
@@ -344,7 +345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
        return res.status(403).json({ message: "No access to this startup" });
      }
      
-     const alignmentScore = await analyzeStartupAlignment(startupId);
+     const alignmentScore = await enhancedStartupAlignment(startupId);
      res.json({ alignmentScore });
    } catch (error: any) {
      res.status(500).json({ message: error.message });
@@ -805,6 +806,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(memo);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Nuevo endpoint para regenerar alignment score
+app.post(`${apiRouter}/startups/:id/regenerate-alignment`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const startupId = req.params.id;
+    
+    // Verificar acceso al startup
+    const startup = await storage.getStartup(startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this startup" });
+    }
+    
+    // Usar analyzeStartupAlignment en lugar de enhancedStartupAlignment si no la exportaste
+    const alignmentResult = await enhancedStartupAlignment(startupId);
+    
+    // Registrar actividad
+    await storage.createActivity({
+      type: 'alignment_regenerated',
+      startupId,
+      userId: req.user?.id,
+      content: `Alignment score regenerado manualmente para ${startup.name}`,
+      metadata: {
+        previousScore: startup.alignmentScore,
+        newScore: alignmentResult.alignmentScore || alignmentResult.score, // Adaptarse al nombre que uses
+        trigger: 'manual',
+        triggeredBy: req.user?.name || 'unknown'
+      },
+      fundId: startup.fundId
+    });
+    
+    res.json(alignmentResult);
+  } catch (error: any) {
+    console.error("Error regenerando alignment score:", error);
+    res.status(500).json({ 
+      message: "Error al regenerar alignment score", 
+      details: error.message 
+    });
   }
 });
 

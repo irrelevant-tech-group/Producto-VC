@@ -147,3 +147,9 @@ export const fetchDocument = async (id: string) => {
   if (!res.ok) throw new Error('Failed to fetch document details');
   return res.json();
 };
+
+export const regenerateStartupAlignment = async (id: string) => {
+  const res = await apiRequest('POST', `/api/startups/${id}/regenerate-alignment`);
+  if (!res.ok) throw new Error('Failed to regenerate startup alignment');
+  return res.json();
+};

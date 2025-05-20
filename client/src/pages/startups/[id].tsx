@@ -1,6 +1,6 @@
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { fetchStartup, fetchDueDiligenceProgress, fetchStartupDocuments, fetchStartupMemos, generateMemo } from "@/lib/api";
+import { fetchStartup, fetchDueDiligenceProgress, fetchStartupDocuments, fetchStartupMemos, generateMemo, regenerateStartupAlignment } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -34,7 +34,9 @@ import {
   Briefcase,
   Mail,
   User,
-  Contact
+  Contact,
+  RefreshCcw,
+  Loader2
 } from "lucide-react";
 
 export default function StartupDetail() {
@@ -99,6 +101,25 @@ export default function StartupDetail() {
       toast({
         title: "Error",
         description: `Failed to generate memo: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Regenerate alignment score mutation
+  const regenerateAlignmentMutation = useMutation({
+    mutationFn: () => regenerateStartupAlignment(id as string),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/startups', id] });
+      toast({
+        title: "Analysis Updated",
+        description: "The alignment score has been recalculated.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to recalculate alignment",
         variant: "destructive",
       });
     },
@@ -356,20 +377,76 @@ export default function StartupDetail() {
                 {isLoadingStartup ? (
                   <Skeleton className="h-5 w-32 mt-1" />
                 ) : (
-                  <CardTitle className="text-base font-medium">
-                    {startup?.alignmentScore !== undefined
-                      ? (
+                  <div>
+                    <CardTitle className="text-base font-medium flex items-center">
+                      {startup?.alignmentScore !== undefined
+                        ? (
+                            <div className="flex items-center">
+                              <span>{Math.round(startup.alignmentScore * 100)}%</span>
+                              <div className={`ml-2 w-2 h-2 rounded-full ${
+                                startup.alignmentScore >= 0.7 ? "bg-green-500" :
+                                startup.alignmentScore >= 0.4 ? "bg-amber-500" :
+                                "bg-red-500"
+                              }`}></div>
+                            </div>
+                          )
+                        : "Not analyzed"}
+                        
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        className="ml-2"
+                        onClick={() => regenerateAlignmentMutation.mutate()}
+                        disabled={regenerateAlignmentMutation.isPending}
+                      >
+                        {regenerateAlignmentMutation.isPending ? (
                           <div className="flex items-center">
-                            <span>{Math.round(startup.alignmentScore * 100)}%</span>
-                            <div className={`ml-2 w-2 h-2 rounded-full ${
-                              startup.alignmentScore >= 0.7 ? "bg-green-500" :
-                              startup.alignmentScore >= 0.4 ? "bg-amber-500" :
-                              "bg-red-500"
-                            }`}></div>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            <span>Recalculating...</span>
                           </div>
-                        )
-                      : "Not analyzed"}
-                  </CardTitle>
+                        ) : (
+                          <div className="flex items-center">
+                            <RefreshCcw className="h-3 w-3 mr-1" />
+                            <span>Recalculate</span>
+                          </div>
+                        )}
+                      </Button>
+                    </CardTitle>
+                    
+                    {startup?.analysisMetadata && (
+                      <div className="mt-4 border rounded p-4">
+                        <h3 className="font-medium mb-2">Analysis Details</h3>
+                        
+                        {/* Mostrar resumen */}
+                        {startup.analysisMetadata.summary && (
+                          <p className="text-sm mb-4">{startup.analysisMetadata.summary}</p>
+                        )}
+                        
+                        {/* Mostrar criterios */}
+                        {startup.analysisMetadata.criteria && Object.entries(startup.analysisMetadata.criteria).map(([key, value]) => (
+                          <div key={key} className="mb-3">
+                            <div className="flex justify-between">
+                              <h4 className="text-sm font-medium">{key}</h4>
+                              <span className="text-sm">{value.score}%</span>
+                            </div>
+                            <p className="text-xs text-gray-600">{value.justification}</p>
+                          </div>
+                        ))}
+                        
+                        {/* Mostrar recomendaciones */}
+                        {startup.analysisMetadata.recommendations && (
+                          <div className="mt-4">
+                            <h4 className="text-sm font-medium mb-2">Recommendations</h4>
+                            <ul className="text-sm list-disc pl-5">
+                              {startup.analysisMetadata.recommendations.map((rec, idx) => (
+                                <li key={idx}>{rec}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -592,7 +669,7 @@ export default function StartupDetail() {
                           <div className="flex items-center text-sm">
                             <User className="h-4 w-4 mr-2 text-blue-600" />
                             <span className="text-slate-700">
-                              <strong>{startup.primaryContact.name}</strong> - {startup.primaryContact.position}
+                            <strong>{startup.primaryContact.name}</strong> - {startup.primaryContact.position}
                             </span>
                           </div>
                           <div className="flex items-center text-sm">

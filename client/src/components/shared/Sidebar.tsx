@@ -13,11 +13,15 @@ import {
   LogOut,
   BookOpen,
   ChevronLeft,
-  Bell
+  Bell,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useUser, useOrganization } from '@clerk/clerk-react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -29,14 +33,45 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(3); // Simulación de notificaciones
+  const [unreadCount, setUnreadCount] = useState(3);
+  const { user: authUser, logout } = useAuth();
   
-  // Set mounted to true after first render to enable animations
+  const { user: clerkUser } = useUser();
+  const { organization } = useOrganization();
+  
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Helper to check if a path is active (exact or partial match)
+  // Obtener el correo completo
+  const fullEmail = clerkUser?.primaryEmailAddress?.emailAddress || 
+                   authUser?.email || 
+                   'user@example.com';
+  
+  // Extraer solo la parte del nombre de usuario (antes del @)
+  const username = fullEmail.split('@')[0];
+  
+  // Obtener el nombre de la organización directamente de Clerk
+  const orgName = organization?.name || 'H20 Capital';
+  
+  // Obtener URLs de imágenes de perfil
+  const userImageUrl = clerkUser?.imageUrl;
+  const orgImageUrl = organization?.imageUrl;
+  
+  // Obtener rol del usuario
+  const userRole = authUser?.role || 'user';
+
+  // Función para manejar el cierre de sesión
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      // No necesitamos navegar manualmente ya que AuthContext y la configuración de rutas
+      // redirigirán automáticamente al usuario a la pantalla de inicio de sesión
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   const isActive = (path: string, exact = false) => {
     if (exact) return location === path;
     return location === path || location.startsWith(`${path}/`);
@@ -46,13 +81,43 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
     setCollapsed(!collapsed);
   };
 
-  // Navigation items organized for easier management
+  // Función para obtener las iniciales
+  const getInitials = (name: string) => {
+    if (!name) return "HC";
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
+  // Iniciales para el avatar - usar iniciales del nombre de usuario
+  const getUsernameInitials = (username: string) => {
+    if (!username) return "HC";
+    return username.substring(0, 2).toUpperCase();
+  };
+
+  // Formatear el rol para mostrar
+  const formatRole = (role: string) => {
+    if (!role) return 'User';
+    if (role === 'admin') return 'Administrator';
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  };
+
   const mainNavItems = [
     { path: '/', exact: true, icon: Home, label: 'Dashboard' },
     { path: '/startups', icon: Building2, label: 'Startups' },
     { path: '/memos', icon: BookOpen, label: 'Memos' },
     { path: '/documents', icon: FileArchive, label: 'Documents' }
   ];
+
+  // Añadir opción de administración si el usuario es admin
+  if (userRole === 'admin') {
+    if (!mainNavItems.some(item => item.path === '/admin')) {
+      mainNavItems.push({ path: '/admin', icon: Users, label: 'Admin' });
+    }
+  }
 
   const toolsNavItems = [
     { 
@@ -69,7 +134,6 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
     }
   ];
 
-  // Navigation item renderer
   const renderNavItem = (item: any) => {
     const active = isActive(item.path, item?.exact);
     
@@ -139,14 +203,26 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         </button>
       )}
 
-      {/* Sidebar Header */}
+      {/* Sidebar Header - Nombre e imagen de la organización */}
       <div className="p-4 border-b border-blue-700/40 flex items-center justify-between bg-blue-900/50">
         <div className="flex items-center">
-          <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-blue-700 font-bold shadow-md">
-            IF
+          <div className="flex-shrink-0">
+            {orgImageUrl ? (
+              <img 
+                src={orgImageUrl} 
+                alt={orgName} 
+                className="h-10 w-10 object-contain rounded-md shadow-md" 
+              />
+            ) : (
+              <div className="h-10 w-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold shadow-md">
+                {getInitials(orgName)}
+              </div>
+            )}
           </div>
           {!collapsed && (
-            <span className="ml-2 font-semibold text-xl text-white">InvestFlow</span>
+            <span className="ml-2 font-semibold text-white truncate">
+              {orgName}
+            </span>
           )}
         </div>
         <button 
@@ -157,16 +233,20 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         </button>
       </div>
 
-      {/* User Profile */}
+      {/* User Profile - Imagen de perfil e información del usuario */}
       <div className={cn(
         "px-4 py-4 border-b border-blue-700/40 mb-3",
         collapsed ? "flex justify-center" : ""
       )}>
         {collapsed ? (
           <div className="relative">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-400 to-indigo-400 text-white flex items-center justify-center font-medium shadow-md">
-              DR
-            </div>
+            <Avatar className="w-9 h-9 bg-gradient-to-br from-sky-400 to-indigo-400 text-white">
+              {userImageUrl ? (
+                <AvatarImage src={userImageUrl} alt={username} />
+              ) : (
+                <AvatarFallback>{getUsernameInitials(username)}</AvatarFallback>
+              )}
+            </Avatar>
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center animate-pulse">
                 {unreadCount}
@@ -175,15 +255,23 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
           </div>
         ) : (
           <div className="flex items-center">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-indigo-400 text-white flex items-center justify-center font-medium shadow-md">
-              DR
-            </div>
+            <Avatar className="w-10 h-10 bg-gradient-to-br from-sky-400 to-indigo-400 text-white">
+              {userImageUrl ? (
+                <AvatarImage src={userImageUrl} alt={username} />
+              ) : (
+                <AvatarFallback>{getUsernameInitials(username)}</AvatarFallback>
+              )}
+            </Avatar>
             <div className="ml-3 flex-1">
-              <p className="text-sm font-medium text-white">David Rodriguez</p>
-              <p className="text-xs text-blue-200 flex items-center">
-                <span className="w-2 h-2 rounded-full bg-green-400 mr-1.5 animate-pulse"></span>
-                Investment Analyst
+              <p className="text-sm font-medium text-white truncate">
+                {username}
               </p>
+              <div className="flex items-center">
+                <span className="w-2 h-2 rounded-full bg-green-400 mr-1.5 animate-pulse"></span>
+                <p className="text-xs text-blue-200 truncate">
+                  {formatRole(userRole)}
+                </p>
+              </div>
             </div>
             {unreadCount > 0 && (
               <div className="relative">
@@ -239,8 +327,11 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         collapsed ? "flex justify-center" : ""
       )}>
         {collapsed ? (
-          <div className="p-2 rounded-full hover:bg-white/10 cursor-pointer">
-            <FileText className="h-5 w-5 text-blue-200 hover:text-white" />
+          <div 
+            className="p-2 rounded-full hover:bg-white/10 cursor-pointer"
+            onClick={handleSignOut} // Añadida función de cierre de sesión
+          >
+            <LogOut className="h-5 w-5 text-blue-200 hover:text-white" />
           </div>
         ) : (
           <>
@@ -267,10 +358,24 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
               variant="ghost" 
               size="sm" 
               className="w-full text-sm text-blue-200 hover:text-white hover:bg-blue-700/50 flex items-center justify-center transition-colors"
+              onClick={handleSignOut} // Cambiado de onClick={() => logout()} a usar la función de manejador
             >
               <LogOut className="h-4 w-4 mr-2" />
               Sign out
             </Button>
+            
+            {/* Logo de la empresa - mantener el estilo que ya funciona */}
+            <div className="flex flex-col items-center mt-6 pt-4 border-t border-blue-700/30">
+              <p className="text-xs text-blue-200 uppercase tracking-wide font-medium mb-2">
+                Developed by
+              </p>
+              <div className="flex items-center justify-center bg-white rounded-md px-3 py-1.5 shadow-md">
+                <span className="font-medium text-base tracking-wider" style={{ fontFamily: 'sans-serif' }}>
+                  <span className="text-indigo-500">irre</span>
+                  <span className="text-gray-800">levant</span>
+                </span>
+              </div>
+            </div>
           </>
         )}
       </div>

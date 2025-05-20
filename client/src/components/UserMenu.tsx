@@ -1,4 +1,4 @@
-// UserMenu.tsx corregido
+// client/src/components/UserMenu.tsx
 import { useUser, useClerk } from "@clerk/clerk-react";
 import { useLocation } from "wouter";
 import { useAuth } from "../contexts/AuthContext";
@@ -34,8 +34,18 @@ export function UserMenu() {
   };
   
   const handleSignOut = async () => {
-    await logout();
-    setLocation('/sign-in');
+    try {
+      // Call the logout function from auth context
+      await logout();
+      
+      // Clerk signout
+      await signOut();
+      
+      // Redirect to sign-in page
+      setLocation('/sign-in');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
   
   const navigateTo = (path: string) => {

@@ -1,7 +1,8 @@
 import { Route, Switch } from "wouter";
 import { AuthProvider } from './contexts/AuthContext';
-import { ClerkLoaded, ClerkLoading, SignIn, SignUp, RedirectToSignIn, SignedIn, SignedOut } from '@clerk/clerk-react';
+import { ClerkLoaded, ClerkLoading, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { Loader2 } from 'lucide-react';
+import MainLayout from './components/layouts/MainLayout';
 
 // Pages
 import Dashboard from './pages/dashboard';
@@ -19,7 +20,6 @@ import NotFound from './pages/not-found';
 // Auth Pages
 import SignInPage from './components/auth/SignInPage';
 import SignUpPage from './components/auth/SignUpPage';
-import ProtectedRoute from "./ProtectedRoute";
 
 function App() {
   return (
@@ -33,12 +33,11 @@ function App() {
       <ClerkLoaded>
         <AuthProvider>
           <Switch>
-            {/* Auth routes */}
+            {/* Auth routes - no sidebar needed */}
             <Route path="/sign-in">
               <SignInPage />
             </Route>
             <Route path="/sign-in/*">
-              {/* Handle any nested sign-in routes */}
               <SignInPage />
             </Route>
             
@@ -46,14 +45,15 @@ function App() {
               <SignUpPage />
             </Route>
             <Route path="/sign-up/*">
-              {/* Handle any nested sign-up routes */}
               <SignUpPage />
             </Route>
             
-            {/* Protected routes */}
+            {/* Protected routes with MainLayout wrapper */}
             <Route path="/">
               <SignedIn>
-                <Dashboard />
+                <MainLayout>
+                  <Dashboard />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn redirectUrl="/dashboard" />
@@ -62,7 +62,9 @@ function App() {
             
             <Route path="/dashboard">
               <SignedIn>
-                <Dashboard />
+                <MainLayout>
+                  <Dashboard />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn redirectUrl="/dashboard" />
@@ -71,7 +73,9 @@ function App() {
             
             <Route path="/startups">
               <SignedIn>
-                <StartupsList />
+                <MainLayout>
+                  <StartupsList />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -80,7 +84,9 @@ function App() {
             
             <Route path="/startups/new">
               <SignedIn>
-                <StartupNew />
+                <MainLayout>
+                  <StartupNew />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -89,7 +95,9 @@ function App() {
             
             <Route path="/startups/:id">
               <SignedIn>
-                <StartupDetail />
+                <MainLayout>
+                  <StartupDetail />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -98,7 +106,9 @@ function App() {
             
             <Route path="/documents">
               <SignedIn>
-                <DocumentsList />
+                <MainLayout>
+                  <DocumentsList />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -107,7 +117,9 @@ function App() {
             
             <Route path="/documents/upload">
               <SignedIn>
-                <DocumentUpload />
+                <MainLayout>
+                  <DocumentUpload />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -116,7 +128,9 @@ function App() {
             
             <Route path="/documents/:id">
               <SignedIn>
-                <DocumentDetail />
+                <MainLayout>
+                  <DocumentDetail />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -125,7 +139,9 @@ function App() {
             
             <Route path="/memos">
               <SignedIn>
-                <MemosList />
+                <MainLayout>
+                  <MemosList />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -134,7 +150,9 @@ function App() {
             
             <Route path="/memos/:id">
               <SignedIn>
-                <MemoDetail />
+                <MainLayout>
+                  <MemoDetail />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
@@ -143,7 +161,9 @@ function App() {
             
             <Route path="/ai-assistant">
               <SignedIn>
-                <AiAssistant />
+                <MainLayout>
+                  <AiAssistant />
+                </MainLayout>
               </SignedIn>
               <SignedOut>
                 <RedirectToSignIn />
