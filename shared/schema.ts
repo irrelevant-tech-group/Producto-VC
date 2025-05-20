@@ -66,16 +66,32 @@ export const memoStatusEnum = pgEnum('memo_status', [
   'final'
 ]);
 
-// Users (sin cambios)
+// Users - MODIFICADO para añadir campos de Clerk
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   name: text("name").notNull(),
-  email: text("email").notNull(),
+  email: text("email").notNull().unique(), // Añadimos unique constraint
   position: text("position"),
+  clerkId: text("clerk_id").unique(), // Añadimos ID de Clerk
+  fundId: text("fund_id").references(() => funds.id), // ID del fondo al que pertenece
+  role: text("role").default('analyst'), // rol del usuario
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Nueva tabla para fondos/organizaciones
+export const funds = pgTable("funds", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  clerkOrgId: text("clerk_org_id").unique(),
+  logoUrl: text("logo_url"),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
 });
 
 // Startups - ACTUALIZADO con nuevos campos
@@ -85,15 +101,16 @@ export const startups = pgTable("startups", {
   vertical: startupVerticalEnum("vertical").notNull(),
   stage: startupStageEnum("stage").notNull(),
   location: text("location").notNull(),
-  amountSought: numeric("amount_sought"), // Cambiado de real a numeric para mayor precisión
+  amountSought: numeric("amount_sought"),
   currency: currencyEnum("currency").default('USD'),
   primaryContact: jsonb("primary_contact"),
-  firstContactDate: date("first_contact_date"), // NUEVO CAMPO
+  firstContactDate: date("first_contact_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   status: startupStatusEnum("status").default('active'),
   alignmentScore: real("alignment_score"),
   lastInteraction: timestamp("last_interaction"),
+  fundId: text("fund_id").references(() => funds.id), // Añadimos referencia al fondo
 });
 
 // Resto de tablas sin cambios...
@@ -111,6 +128,7 @@ export const documents = pgTable("documents", {
   processed: boolean("processed").default(false),
   processingStatus: processingStatusEnum("processing_status").default('pending'),
   metadata: jsonb("metadata"),
+  fundId: text("fund_id").references(() => funds.id), // Añadimos referencia al fondo
 });
 
 export const chunks = pgTable("chunks", {
@@ -125,6 +143,7 @@ export const chunks = pgTable("chunks", {
   embedding: vector("embedding", { dimensions: 1536 }),
   similarityScore: real("similarity_score"),
   metadata: jsonb("metadata"),
+  fundId: text("fund_id").references(() => funds.id), // Añadimos referencia al fondo
 });
 
 export const memos = pgTable("investment_memos", {
@@ -139,6 +158,7 @@ export const memos = pgTable("investment_memos", {
   updatedBy: integer("updated_by").references(() => users.id),
   sections: jsonb("sections"),
   exportUrls: jsonb("export_urls"),
+  fundId: text("fund_id").references(() => funds.id), // Añadimos referencia al fondo
 });
 
 export const activities = pgTable("activities", {
@@ -151,40 +171,61 @@ export const activities = pgTable("activities", {
   content: text("content"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
+  fundId: text("fund_id").references(() => funds.id), // Añadimos referencia al fondo
 });
 
-// Relaciones (sin cambios)
-export const usersRelations = relations(users, ({ many }) => ({
+// Relaciones actualizadas
+export const usersRelations = relations(users, ({ many, one }) => ({
   documents: many(documents),
   memos: many(memos),
   activities: many(activities),
+  fund: one(funds, { fields: [users.fundId], references: [funds.id] }),
 }));
-export const startupsRelations = relations(startups, ({ many }) => ({
+
+export const fundsRelations = relations(funds, ({ many, one }) => ({
+  users: many(users),
+  startups: many(startups),
+  documents: many(documents),
+  memos: many(memos),
+  activities: many(activities),
+  createdByUser: one(users, { fields: [funds.createdBy], references: [users.id] }),
+}));
+
+export const startupsRelations = relations(startups, ({ many, one }) => ({
   documents: many(documents),
   chunks: many(chunks),
   memos: many(memos),
   activities: many(activities),
+  fund: one(funds, { fields: [startups.fundId], references: [funds.id] }),
 }));
+
 export const documentsRelations = relations(documents, ({ one, many }) => ({
   startup: one(startups, { fields: [documents.startupId], references: [startups.id] }),
   uploadedByUser: one(users, { fields: [documents.uploadedBy], references: [users.id] }),
   chunks: many(chunks),
   activities: many(activities),
+  fund: one(funds, { fields: [documents.fundId], references: [funds.id] }),
 }));
+
 export const chunksRelations = relations(chunks, ({ one }) => ({
   document: one(documents, { fields: [chunks.documentId], references: [documents.id] }),
   startup: one(startups, { fields: [chunks.startupId], references: [startups.id] }),
+  fund: one(funds, { fields: [chunks.fundId], references: [funds.id] }),
 }));
+
 export const memosRelations = relations(memos, ({ one, many }) => ({
   startup: one(startups, { fields: [memos.startupId], references: [startups.id] }),
   updatedByUser: one(users, { fields: [memos.updatedBy], references: [users.id] }),
   activities: many(activities),
+  fund: one(funds, { fields: [memos.fundId], references: [funds.id] }),
 }));
+
 export const activitiesRelations = relations(activities, ({ one }) => ({
   user: one(users, { fields: [activities.userId], references: [users.id] }),
   startup: one(startups, { fields: [activities.startupId], references: [startups.id] }),
   document: one(documents, { fields: [activities.documentId], references: [documents.id] }),
   memo: one(memos, { fields: [activities.memoId], references: [memos.id] }),
+  fund: one(funds, { fields: [activities.fundId], references: [funds.id] }),
 }));
 
 // Tipos y esquemas
@@ -193,6 +234,7 @@ export type InsertChunk = {
   startupId: string;
   content: string;
   metadata?: any;
+  fundId?: string; // Añadido para Clerk
 };
 
 // ESQUEMA ACTUALIZADO - Extendido con nuevos campos obligatorios
@@ -207,7 +249,31 @@ export const insertStartupSchema = createInsertSchema(startups, {
   firstContactDate: z.string().refine(
     (date) => !isNaN(Date.parse(date)), 
     "First contact date must be a valid ISO date"
-  )
+  ),
+  fundId: z.string().optional()
+});
+
+// Esquema para creación de usuarios
+export const insertUserSchema = createInsertSchema(users, {
+  email: z.string().email("Valid email is required"),
+  role: z.enum(['admin', 'analyst', 'associate', 'partner']).default('analyst'),
+  clerkId: z.string().optional(),
+  fundId: z.string().optional()
+});
+
+// Esquema para creación de fondos
+export const insertFundSchema = createInsertSchema(funds, {
+  name: z.string().min(1, "Fund name is required"),
+  slug: z.string().min(1, "Slug is required"),
+  clerkOrgId: z.string().optional(),
+  logoUrl: z.string().url().optional(),
+  description: z.string().optional()
+});
+
+// Esquema para documento actualizado
+export const insertDocumentSchema = createInsertSchema(documents, {
+  startupId: z.string().uuid("Must be a valid UUID"),
+  fundId: z.string().optional()
 });
 
 // Resto de esquemas sin cambios...
@@ -227,7 +293,8 @@ export const vectorSearchSchema = z.object({
   startupId: z.string().uuid().optional(),
   documentId: z.string().uuid().optional(),
   limit: z.number().int().min(1).max(100).default(10),
-  similarityThreshold: z.number().min(0).max(1).default(0.7)
+  similarityThreshold: z.number().min(0).max(1).default(0.7),
+  fundId: z.string().optional()
 });
 
 export const entitySchema = z.object({

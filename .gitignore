@@ -1,11 +1,52 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz
+# Node modules
+node_modules/
 
+# Build output
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE config
+.vscode/
+.replit
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Generated files
+*.log
+*.lock
+*.pid
+
+# Uploaded or temp folders
+temp_uploads/
+attached_assets/
+
+# Output reports or dumps
+*.pdf
+*.pptx
+
+# Clerk / sensitive config
 creds.json
 
+# Auto-generated icons or assets
+generated-icon.png
 
-.env
+# Optional: exclude compiled JS from TS if present
+scripts/*.js
+
+# Coverage or testing folders (if used)
+coverage/

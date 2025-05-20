@@ -26,6 +26,8 @@ import {
   exportMemo
 } from "./services/memoGenerator";
 import { googleCloudStorage } from "./services/storageService";
+import { requireAuth, loadUserFromDb, requireAdmin, requireFundAccess } from './middleware/auth';
+import fundsRouter from './routes/funds';
 
 // ESM __dirname polyfill
 const __filename = fileURLToPath(import.meta.url);
@@ -63,7 +65,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
  // API prefix
  const apiRouter = '/api';
 
- // Authentication routes (sin cambios)
+ // Usar el router de fondos
+ app.use(`${apiRouter}/funds`, fundsRouter);
+
+ // Ruta pública para verificación de salud
+ app.get(`${apiRouter}/health`, (req, res) => {
+   res.json({ status: 'ok', version: '1.0.0' });
+ });
+
+ // Ruta para obtener datos del usuario actual
+ app.get(`${apiRouter}/me`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     res.json({
+       id: req.user?.id,
+       name: req.user?.name,
+       email: req.user?.email,
+       role: req.user?.role,
+       fundId: req.user?.fundId,
+       orgName: req.user?.orgName,
+       orgLogo: req.user?.orgLogo
+     });
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ // Ruta para obtener el fondo actual
+ app.get(`${apiRouter}/fund`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     if (!req.user?.fundId) {
+       return res.status(404).json({ message: "Fund not assigned" });
+     }
+
+     const fund = await storage.getFund(req.user.fundId);
+     if (!fund) {
+       return res.status(404).json({ message: "Fund not found" });
+     }
+     res.json(fund);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ // Reemplazar la ruta de login existente con verificación de Clerk
+ app.post(`${apiRouter}/auth/verify`, async (req: Request, res: Response) => {
+   try {
+     const { token } = req.body;
+     const clerk = req.app.locals.clerk;
+     
+     if (!token) {
+       return res.status(400).json({ message: "Token is required" });
+     }
+     
+     try {
+       const session = await clerk.sessions.verifySession(token);
+       const clerkUser = await clerk.users.getUser(session.userId);
+       
+       // Verificar en nuestra base de datos
+       const primaryEmail = clerkUser.emailAddresses.find(
+         email => email.id === clerkUser.primaryEmailAddressId
+       )?.emailAddress;
+       
+       if (!primaryEmail) {
+         return res.status(400).json({ message: "User has no primary email" });
+       }
+       
+       let user = await storage.getUserByEmail(primaryEmail);
+       
+       if (!user) {
+         // Primera vez que inicia sesión, vamos a crear el usuario
+         user = await storage.createUser({
+           username: primaryEmail.split('@')[0],
+           email: primaryEmail,
+           password: 'clerk-managed',
+           name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim(),
+           position: 'analyst',
+           clerkId: clerkUser.id
+         });
+         
+         // Si es el superadmin, asignar rol de admin
+         if (primaryEmail === process.env.SUPERADMIN_EMAIL) {
+           await storage.updateUser(user.id, { role: 'admin' });
+           user.role = 'admin';
+         }
+       }
+       
+       res.json({
+         id: user.id,
+         name: user.name,
+         email: user.email,
+         role: user.role,
+         clerkId: clerkUser.id
+       });
+     } catch (err) {
+       console.error('Error verifying Clerk token:', err);
+       return res.status(401).json({ message: "Invalid token" });
+     }
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ // Legacy auth route (deprecated but kept for compatibility)
  app.post(`${apiRouter}/auth/login`, async (req: Request, res: Response) => {
    try {
      const { username, password } = req.body;
@@ -82,13 +185,204 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  });
 
+ // Dashboard metrics
+ app.get(`${apiRouter}/dashboard/metrics`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     // Filtrar métricas por fondo si el usuario no es superadmin
+     const fundId = req.user?.email === process.env.SUPERADMIN_EMAIL ? undefined : req.user?.fundId;
+     const metrics = await storage.getDashboardMetrics(fundId);
+     res.json(metrics);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
 
- app.get(`${apiRouter}/documents/:id`, async (req, res) => {
+ app.get(`${apiRouter}/dashboard/activities`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+     // Filtrar actividades por fondo si el usuario no es superadmin
+     const fundId = req.user?.email === process.env.SUPERADMIN_EMAIL ? undefined : req.user?.fundId;
+     const activities = await storage.getRecentActivities(limit, fundId);
+     res.json(activities);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ // Startup routes
+ app.get(`${apiRouter}/startups`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     // Filtrar por fondo si no es superadmin
+     const fundId = req.user?.email === process.env.SUPERADMIN_EMAIL ? undefined : req.user?.fundId;
+     const summaries = await storage.getStartupSummaries(fundId);
+     res.json(summaries);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ app.get(`${apiRouter}/startups/:id`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const startup = await storage.getStartup(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    // Verificar acceso al startup
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this startup" });
+    }
+    
+    // Para debug
+    console.log("Raw startup from DB:", JSON.stringify(startup, null, 2));
+    
+    // Crear un objeto básico con los campos obligatorios
+    const response = {
+      id: startup.id,
+      name: startup.name,
+      vertical: startup.vertical || "",
+      stage: startup.stage || "",
+      location: startup.location || "",
+      status: startup.status || "active",
+      
+      // Añadir campos opcionales de forma segura
+      amountSought: startup.amountSought ? Number(startup.amountSought) : null,
+      currency: startup.currency || "USD",
+      primaryContact: startup.primaryContact || {},
+      firstContactDate: startup.firstContactDate || null,
+      description: startup.description || "",
+      alignmentScore: startup.alignmentScore || null,
+      fundId: startup.fundId || null
+    };
+    
+    res.json(response);
+  } catch (error: any) {
+    console.error(`Error fetching startup ${req.params.id}:`, error);
+    res.status(500).json({ 
+      message: "Error fetching startup details", 
+      error: error.message 
+    });
+  }
+});
+
+ app.post(`${apiRouter}/startups`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     // Validar con el schema extendido que incluye los nuevos campos
+     const data = validateBody(insertStartupSchema, req.body);
+     
+     // Asignar el fundId del usuario actual si no viene en la request
+     if (!data.fundId && req.user?.fundId) {
+       data.fundId = req.user.fundId;
+     }
+     
+     // Convertir firstContactDate de string a Date
+     if (data.firstContactDate) {
+       data.firstContactDate = new Date(data.firstContactDate);
+     }
+     
+     const startup = await storage.createStartup(data);
+     
+     await storage.createActivity({
+       type: 'startup_created',
+       startupId: startup.id,
+       userId: req.user?.id || req.body.userId,
+       content: `New startup "${startup.name}" added`,
+       fundId: startup.fundId
+     });
+     
+     res.status(201).json(startup);
+   } catch (error: any) {
+     res.status(400).json({ message: error.message });
+   }
+ });
+
+ // Due diligence progress route
+ app.get(`${apiRouter}/startups/:id/due-diligence`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     const startupId = req.params.id;
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this startup" });
+     }
+     
+     const progress = await storage.getDueDiligenceProgress(startupId);
+     res.json(progress);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ app.get(`${apiRouter}/startups/:id/alignment`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     const startupId = req.params.id;
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this startup" });
+     }
+     
+     const alignmentScore = await analyzeStartupAlignment(startupId);
+     res.json({ alignmentScore });
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ // Document routes
+ app.get(`${apiRouter}/startups/:id/documents`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+   try {
+     const startupId = req.params.id;
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this startup" });
+     }
+     
+     const documents = await storage.getDocumentsByStartup(startupId);
+     res.json(documents);
+   } catch (error: any) {
+     res.status(500).json({ message: error.message });
+   }
+ });
+
+ app.get(`${apiRouter}/documents/:id`, requireAuth, loadUserFromDb, async (req, res) => {
   try {
     const documentId = req.params.id;
     
     // Validar ID format
-    const isValidUUID = (id) => {
+    const isValidUUID = (id: string) => {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     };
     
@@ -100,6 +394,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     if (!document) {
       return res.status(404).json({ message: "Document not found" });
+    }
+    
+    // Verificar acceso al startup
+    const startup = await storage.getStartup(document.startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Associated startup not found" });
+    }
+    
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this document" });
     }
     
     // Transform the document data to ensure all fields are present
@@ -128,134 +436,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 });
 
- // Dashboard metrics (sin cambios)
- app.get(`${apiRouter}/dashboard/metrics`, async (req: Request, res: Response) => {
-   try {
-     const metrics = await storage.getDashboardMetrics();
-     res.json(metrics);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- app.get(`${apiRouter}/dashboard/activities`, async (req: Request, res: Response) => {
-   try {
-     const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-     const activities = await storage.getRecentActivities(limit);
-     res.json(activities);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- // Startup routes - ACTUALIZADOS
- app.get(`${apiRouter}/startups`, async (req: Request, res: Response) => {
-   try {
-     const summaries = await storage.getStartupSummaries();
-     res.json(summaries);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- // ACTUALIZADO - Incluye nuevos campos en la respuesta
- app.get(`${apiRouter}/startups/:id`, async (req: Request, res: Response) => {
-  try {
-    const startup = await storage.getStartup(req.params.id);
-    if (!startup) {
-      return res.status(404).json({ message: "Startup not found" });
-    }
-    
-    // Para debug
-    console.log("Raw startup from DB:", JSON.stringify(startup, null, 2));
-    
-    // Crear un objeto básico con los campos obligatorios
-    const response = {
-      id: startup.id,
-      name: startup.name,
-      vertical: startup.vertical || "",
-      stage: startup.stage || "",
-      location: startup.location || "",
-      status: startup.status || "active",
-      
-      // Añadir campos opcionales de forma segura
-      amountSought: startup.amountSought ? Number(startup.amountSought) : null,
-      currency: startup.currency || "USD",
-      primaryContact: startup.primaryContact || {},
-      firstContactDate: startup.firstContactDate || null,
-      description: startup.description || "",
-      alignmentScore: startup.alignmentScore || null
-    };
-    
-    res.json(response);
-  } catch (error: any) {
-    console.error(`Error fetching startup ${req.params.id}:`, error);
-    res.status(500).json({ 
-      message: "Error fetching startup details", 
-      error: error.message 
-    });
-  }
-});
-
- // ACTUALIZADO - Validar y leer nuevos campos del body
- app.post(`${apiRouter}/startups`, async (req: Request, res: Response) => {
-   try {
-     // Validar con el schema extendido que incluye los nuevos campos
-     const data = validateBody(insertStartupSchema, req.body);
-     
-     // Convertir firstContactDate de string a Date
-     if (data.firstContactDate) {
-       data.firstContactDate = new Date(data.firstContactDate);
-     }
-     
-     const startup = await storage.createStartup(data);
-     
-     await storage.createActivity({
-       type: 'startup_created',
-       startupId: startup.id,
-       userId: req.body.userId,
-       content: `New startup "${startup.name}" added`
-     });
-     
-     res.status(201).json(startup);
-   } catch (error: any) {
-     res.status(400).json({ message: error.message });
-   }
- });
-
- // NUEVO - Ruta para due diligence progress
- app.get(`${apiRouter}/startups/:id/due-diligence`, async (req: Request, res: Response) => {
-   try {
-     const progress = await storage.getDueDiligenceProgress(req.params.id);
-     res.json(progress);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- // Resto de rutas sin cambios...
- app.get(`${apiRouter}/startups/:id/alignment`, async (req: Request, res: Response) => {
-   try {
-     const alignmentScore = await analyzeStartupAlignment(req.params.id);
-     res.json({ alignmentScore });
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- // Document routes (sin cambios significativos)
- app.get(`${apiRouter}/startups/:id/documents`, async (req: Request, res: Response) => {
-   try {
-     const documents = await storage.getDocumentsByStartup(req.params.id);
-     res.json(documents);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
-
- // ACTUALIZADO - Implementación de Google Cloud Storage
  app.post(
    `${apiRouter}/documents/upload`,
+   requireAuth,
+   loadUserFromDb,
    upload.single('file'),
    async (req: Request, res: Response, next: NextFunction) => {
      try {
@@ -271,6 +455,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
        const startup = await storage.getStartup(startupId);
        if (!startup) {
          return res.status(404).json({ message: `Startup with ID ${startupId} not found` });
+       }
+       
+       // Verificar acceso al startup
+       const fundId = req.user?.fundId;
+       if (fundId && 
+           startup.fundId && 
+           fundId !== startup.fundId && 
+           req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+         return res.status(403).json({ message: "No access to this startup" });
        }
 
        // Generar nombre único para el archivo
@@ -317,7 +510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
          type: type as any,
          fileUrl,
          fileType: req.file.mimetype,
-         uploadedBy: req.body.userId ? parseInt(req.body.userId) : undefined,
+         uploadedBy: req.user?.id || req.body.userId,
          metadata
        });
 
@@ -326,13 +519,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
          type: 'document_uploaded',
          documentId: document.id,
          startupId,
-         userId: req.body.userId ? parseInt(req.body.userId) : undefined,
+         userId: req.user?.id || req.body.userId,
          content: `Documento "${document.name}" subido a ${metadata.storageProvider}`,
          metadata: {
            fileType: req.file.mimetype,
            fileSize: req.file.size,
            storageProvider: metadata.storageProvider
-         }
+         },
+         fundId: startup.fundId
        });
 
        // Iniciar procesamiento en segundo plano
@@ -365,12 +559,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  );
 
- // AI Query route - MEJORADO con validación y persistencia
- app.post(`${apiRouter}/ai/query`, async (req: Request, res: Response) => {
+ // AI Query route
+ app.post(`${apiRouter}/ai/query`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
    try {
      // Validar entrada con schema
      const validatedData = validateBody(aiQuerySchema, req.body);
-     const { startupId, question, includeSourceDocuments, userId } = validatedData;
+     const { startupId, question, includeSourceDocuments } = validatedData;
      
      // Validar UUID si se proporciona startupId
      const isValidUUID = (id: string) =>
@@ -383,6 +577,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
            message: "Invalid startupId format. Must be a valid UUID or 'all'." 
          });
        }
+       
+       // Verificar acceso al startup
+       if (startupId !== "all") {
+         const startup = await storage.getStartup(startupId);
+         if (!startup) {
+           return res.status(404).json({ message: "Startup not found" });
+         }
+         
+         const fundId = req.user?.fundId;
+         if (fundId && 
+             startup.fundId && 
+             fundId !== startup.fundId && 
+             req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+           return res.status(403).json({ message: "No access to this startup" });
+         }
+       }
+       
        validStartupId = startupId;
      }
      
@@ -402,13 +613,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
          answer: response.answer,
          sources: response.sources,
          startupId: validStartupId,
-         userId,
+         userId: req.user?.id,
          processingTimeMs: processingTime,
          metadata: {
            sourcesCount: response.sources?.length || 0,
            timestamp: new Date().toISOString(),
            includeSourceDocuments
-         }
+         },
+         fundId: req.user?.fundId
        });
      } catch (saveError) {
        console.error("Error guardando consulta:", saveError);
@@ -420,12 +632,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
        await storage.createActivity({
          type: 'ai_query',
          startupId: validStartupId,
-         userId: userId || null,
+         userId: req.user?.id,
          content: question.length > 100 ? question.substring(0, 100) + "..." : question,
          metadata: {
            sourcesReturned: response.sources?.length || 0,
            processingTimeMs: processingTime
-         }
+         },
+         fundId: req.user?.fundId
        });
      } catch (activityError) {
        console.error("Error registrando actividad:", activityError);
@@ -466,17 +679,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  });
 
- // NUEVA ruta para obtener historial de consultas
- app.get(`${apiRouter}/ai/queries`, async (req: Request, res: Response) => {
+ // Historial de consultas
+ app.get(`${apiRouter}/ai/queries`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
    try {
      const limit = parseInt(req.query.limit as string) || 20;
-     const startupId = req.query.startupId as string;
-     const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
+     let startupId = req.query.startupId as string;
+     
+     // Si se solicitó un startup específico, verificar acceso
+     if (startupId && startupId !== "all") {
+       const startup = await storage.getStartup(startupId);
+       if (!startup) {
+         return res.status(404).json({ message: "Startup not found" });
+       }
+       
+       const fundId = req.user?.fundId;
+       if (fundId && 
+           startup.fundId && 
+           fundId !== startup.fundId && 
+           req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+         return res.status(403).json({ message: "No access to this startup" });
+       }
+     }
+     
+     // Filtrar por fondo si el usuario no es superadmin
+     const fundId = req.user?.email === process.env.SUPERADMIN_EMAIL ? undefined : req.user?.fundId;
      
      const queries = await storage.getQueryHistory({
        limit,
        startupId: startupId === "all" ? undefined : startupId,
-       userId
+       userId: req.user?.id,
+       fundId
      });
      
      res.json(queries);
@@ -486,72 +718,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
    }
  });
 
- // Memo routes (sin cambios)
- app.get(`${apiRouter}/startups/:id/memos`, async (req: Request, res: Response) => {
+ // Memo routes
+ app.get(`${apiRouter}/startups/:id/memos`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
    try {
-     const memos = await storage.getMemosByStartup(req.params.id);
+     const startupId = req.params.id;
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this startup" });
+     }
+     
+     const memos = await storage.getMemosByStartup(startupId);
      res.json(memos);
    } catch (error: any) {
      res.status(500).json({ message: error.message });
    }
  });
 
- app.get(`${apiRouter}/memos/:id`, async (req: Request, res: Response) => {
+ app.get(`${apiRouter}/memos/:id`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
    try {
-     const memo = await storage.getMemo(req.params.id);
+     const memoId = req.params.id;
+     
+     const memo = await storage.getMemo(memoId);
      if (!memo) {
        return res.status(404).json({ message: "Memo not found" });
      }
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(memo.startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Associated startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this memo" });
+     }
+     
      res.json(memo);
    } catch (error: any) {
      res.status(500).json({ message: error.message });
    }
  });
 
- app.post(`${apiRouter}/startups/:id/memos/generate`, async (req: Request, res: Response) => {
+ app.post(`${apiRouter}/startups/:id/memos/generate`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
    try {
      const startupId = req.params.id;
+     
+     // Verificar acceso al startup
+     const startup = await storage.getStartup(startupId);
+     if (!startup) {
+       return res.status(404).json({ message: "Startup not found" });
+     }
+     
+     const fundId = req.user?.fundId;
+     if (fundId && 
+         startup.fundId && 
+         fundId !== startup.fundId && 
+         req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+       return res.status(403).json({ message: "No access to this startup" });
+     }
+     
      const { sections } = req.body;
      const memo = await generateMemo(startupId, sections);
-     res.status(201).json(memo);
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
+     
+     // Actualizar información del creador
+     if (req.user) {
+       await storage.updateMemo(memo.id, { 
+        updatedBy: req.user.id,
+        fundId: startup.fundId
+      });
+    }
+    
+    res.status(201).json(memo);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
- app.patch(`${apiRouter}/memos/:id`, async (req: Request, res: Response) => {
-   try {
-     const memoId = req.params.id;
-     const { sections, status } = req.body;
-     if (sections) {
-       const updated = await updateMemoSections(memoId, sections);
-       return res.json(updated);
-     } else if (status) {
-       const updated = await storage.updateMemo(memoId, { status });
-       return res.json(updated);
-     } else {
-       return res.status(400).json({ message: "No updates specified" });
-     }
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
+app.patch(`${apiRouter}/memos/:id`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const memoId = req.params.id;
+    
+    // Verificar que el memo existe
+    const memo = await storage.getMemo(memoId);
+    if (!memo) {
+      return res.status(404).json({ message: "Memo not found" });
+    }
+    
+    // Verificar acceso al startup
+    const startup = await storage.getStartup(memo.startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Associated startup not found" });
+    }
+    
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this memo" });
+    }
+    
+    const { sections, status } = req.body;
+    
+    if (sections) {
+      const updated = await updateMemoSections(memoId, sections);
+      if (req.user) {
+        await storage.updateMemo(memoId, { updatedBy: req.user.id });
+      }
+      return res.json(updated);
+    } else if (status) {
+      const updated = await storage.updateMemo(memoId, { 
+        status,
+        updatedBy: req.user?.id
+      });
+      return res.json(updated);
+    } else {
+      return res.status(400).json({ message: "No updates specified" });
+    }
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
- app.post(`${apiRouter}/memos/:id/export/:format`, async (req: Request, res: Response) => {
-   try {
-     const memoId = req.params.id;
-     const format = req.params.format as 'pdf' | 'docx' | 'slides';
-     if (!['pdf', 'docx', 'slides'].includes(format)) {
-       return res.status(400).json({ message: "Invalid format. Must be pdf, docx, or slides" });
-     }
-     const url = await exportMemo(memoId, format);
-     res.json({ url });
-   } catch (error: any) {
-     res.status(500).json({ message: error.message });
-   }
- });
+app.post(`${apiRouter}/memos/:id/export/:format`, requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const memoId = req.params.id;
+    const format = req.params.format as 'pdf' | 'docx' | 'slides';
+    
+    if (!['pdf', 'docx', 'slides'].includes(format)) {
+      return res.status(400).json({ message: "Invalid format. Must be pdf, docx, or slides" });
+    }
+    
+    // Verificar que el memo existe
+    const memo = await storage.getMemo(memoId);
+    if (!memo) {
+      return res.status(404).json({ message: "Memo not found" });
+    }
+    
+    // Verificar acceso al startup
+    const startup = await storage.getStartup(memo.startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Associated startup not found" });
+    }
+    
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this memo" });
+    }
+    
+    const url = await exportMemo(memoId, format);
+    res.json({ url });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
- const httpServer = createServer(app);
- return httpServer;
+const httpServer = createServer(app);
+return httpServer;
 }
-

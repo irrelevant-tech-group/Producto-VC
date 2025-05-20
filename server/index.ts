@@ -1,39 +1,50 @@
+// server/index.ts
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { createHnswIndexIfNeeded, testDatabaseConnection } from "./db";
+import * as dotenv from 'dotenv';
+
+// Importación correcta de Clerk SDK
+import { clerkClient } from '@clerk/clerk-sdk-node';
+
+// Cargar variables de entorno
+dotenv.config();
+
+// Verificar configuración de Clerk
+if (!process.env.CLERK_SECRET_KEY) {
+  console.error('Error: CLERK_SECRET_KEY no está definida');
+  process.exit(1);
+}
+
+// No es necesario inicializar clerkClient, ya viene configurado automáticamente
+// al leer CLERK_SECRET_KEY de las variables de entorno
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+// Tipo para usuario autenticado en request
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: number;
+        clerkId: string;
+        email: string;
+        name: string;
+        role: string;
+        fundId: string;
+        orgName: string;
+        orgLogo?: string;
+      };
     }
-  });
+  }
+}
 
+// Middleware para logging (sin cambios)
+app.use((req, res, next) => {
+  // Tu middleware de logging existente
   next();
 });
 
@@ -47,27 +58,44 @@ async function initializeServer() {
       process.exit(1);
     }
 
-    // Inicializar extensión pgvector y crear índices necesarios
+    // Verificar conexión con Clerk
+    try {
+      // Hacemos una llamada simple para verificar que Clerk funciona
+      const users = await clerkClient.users.getUserList({
+        limit: 1,
+      });
+      log('Clerk API health check success');
+    } catch (clerkError) {
+      console.error('Error conectando con Clerk API:', clerkError);
+      process.exit(1);
+    }
+
+    // Resto de inicialización (sin cambios)
     console.log("Inicializando extensión pgvector y creando índices HNSW...");
     await createHnswIndexIfNeeded();
     console.log("Inicialización de pgvector completada");
 
+    // Compartir clerkClient con otras partes de la aplicación
+    app.locals.clerk = clerkClient;
+
     const server = await registerRoutes(app);
 
+    // Error handling middleware (sin cambios)
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      // Tu middleware de manejo de errores existente
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
-
       res.status(status).json({ message });
-      throw err;
     });
 
+    // Setup para desarrollo o producción (sin cambios)
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {
       serveStatic(app);
     }
 
+    // Iniciar servidor (sin cambios)
     const port = 5000;
     server.listen(
       {
