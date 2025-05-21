@@ -1,6 +1,6 @@
 // server/index.ts
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes"; // Cambio aquí - importamos la función, no el default
 import { setupVite, serveStatic, log } from "./vite";
 import { createHnswIndexIfNeeded, testDatabaseConnection } from "./db";
 import * as dotenv from 'dotenv';
@@ -42,9 +42,12 @@ declare global {
   }
 }
 
-// Middleware para logging (sin cambios)
+// Middleware para logging
 app.use((req, res, next) => {
-  // Tu middleware de logging existente
+  const timestamp = new Date().toISOString();
+  const method = req.method;
+  const url = req.originalUrl;
+  console.log(`[${timestamp}] ${method} ${url}`);
   next();
 });
 
@@ -70,7 +73,7 @@ async function initializeServer() {
       process.exit(1);
     }
 
-    // Resto de inicialización (sin cambios)
+    // Resto de inicialización
     console.log("Inicializando extensión pgvector y creando índices HNSW...");
     await createHnswIndexIfNeeded();
     console.log("Inicialización de pgvector completada");
@@ -78,25 +81,34 @@ async function initializeServer() {
     // Compartir clerkClient con otras partes de la aplicación
     app.locals.clerk = clerkClient;
 
+    // Registrar rutas de API
     const server = await registerRoutes(app);
 
-    // Error handling middleware (sin cambios)
+    // Error handling middleware global
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      // Tu middleware de manejo de errores existente
       const status = err.status || err.statusCode || 500;
       const message = err.message || "Internal Server Error";
-      res.status(status).json({ message });
+      
+      console.error(`[ERROR] ${status} - ${message}`);
+      if (err.stack && process.env.NODE_ENV === 'development') {
+        console.error(err.stack);
+      }
+      
+      res.status(status).json({ 
+        message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+      });
     });
 
-    // Setup para desarrollo o producción (sin cambios)
+    // Setup para desarrollo o producción
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {
       serveStatic(app);
     }
 
-    // Iniciar servidor (sin cambios)
-    const port = 5000;
+    // Iniciar servidor
+    const port = process.env.PORT ? parseInt(process.env.PORT) : 5000;
     server.listen(
       {
         port,
@@ -104,7 +116,7 @@ async function initializeServer() {
         reusePort: true,
       },
       () => {
-        log(`serving on port ${port}`);
+        log(`Servidor iniciado en puerto ${port} - Entorno: ${app.get("env")}`);
       }
     );
   } catch (error) {

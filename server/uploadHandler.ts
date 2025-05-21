@@ -3,7 +3,7 @@ import { storage } from "./storage";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { processDocument } from "./services/documentProcessor";
+import { processDocument } from "./services/documentProcessor/index";
 import { nanoid } from "nanoid"; // Para IDs únicos
 import { googleCloudStorage } from "./services/storageService";
 

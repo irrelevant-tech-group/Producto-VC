@@ -16,7 +16,7 @@ import {
   DueDiligenceProgress
 } from "@shared/types";
 import { v4 as uuidv4 } from 'uuid';
-import { generateEmbedding } from "./services/openai";
+import { generateEmbedding } from "./services/openai/index";
 
 
 // Nuevo tipo para consultas AI
