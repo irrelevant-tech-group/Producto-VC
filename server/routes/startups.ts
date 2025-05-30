@@ -148,10 +148,45 @@ router.get("/:id/alignment", requireAuth, loadUserFromDb, async (req: Request, r
       return res.status(403).json({ message: "No access to this startup" });
     }
     
-    const alignmentScore = await enhancedStartupAlignment(startupId);
-    res.json({ alignmentScore });
+    // Si ya tiene análisis reciente, devolverlo
+    if (startup.alignmentScore && startup.metadata?.alignmentAnalysis) {
+      console.log("📋 Devolviendo análisis existente de la base de datos");
+      
+      const analysis = startup.metadata.alignmentAnalysis;
+      
+      return res.json({
+        startupId: startup.id,
+        name: startup.name,
+        alignmentScore: startup.alignmentScore,
+        analysis: {
+          summary: analysis.summary || "Análisis de alineamiento completado",
+          criteriaScores: analysis.criteriaScores || {},
+          strengths: analysis.strengths || [],
+          weaknesses: analysis.weaknesses || [],
+          recommendations: analysis.recommendations || [],
+          riskFactors: analysis.riskFactors || []
+        },
+        metadata: {
+          analyzedAt: startup.lastAnalyzedAt || startup.updatedAt,
+          documentCount: analysis.documentCount || 0,
+          dataCompleteness: analysis.dataCompleteness || 0,
+          usedOpenAI: analysis.usedOpenAI || false,
+          lastUpdated: analysis.lastUpdated || startup.updatedAt
+        }
+      });
+    }
+    
+    // Si no tiene análisis, generarlo
+    console.log("🔄 Generando nuevo análisis de alineamiento");
+    const alignmentResult = await enhancedStartupAlignment(startupId);
+    res.json(alignmentResult);
+    
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    console.error("Error getting alignment score:", error);
+    res.status(500).json({ 
+      message: "Error al obtener alignment score", 
+      details: error.message 
+    });
   }
 });
 
@@ -200,7 +235,15 @@ router.post("/:id/regenerate-alignment", requireAuth, loadUserFromDb, async (req
       return res.status(403).json({ message: "No access to this startup" });
     }
     
+    console.log(`🔄 Regenerando alignment score para ${startup.name}`);
+    
+    // Generar nuevo análisis
     const alignmentResult = await enhancedStartupAlignment(startupId);
+    
+    console.log("🔍 DEBUG - alignmentResult recibido:");
+    console.log("📊 Score:", alignmentResult.alignmentScore);
+    console.log("📝 Analysis keys:", Object.keys(alignmentResult.analysis || {}));
+    console.log("📋 Full result keys:", Object.keys(alignmentResult));
     
     // Registrar actividad
     await storage.createActivity({
@@ -217,7 +260,21 @@ router.post("/:id/regenerate-alignment", requireAuth, loadUserFromDb, async (req
       fundId: startup.fundId
     });
     
-    res.json(alignmentResult);
+    console.log(`✅ Alignment regenerado: ${Math.round((alignmentResult.alignmentScore || 0) * 100)}%`);
+    
+    // Devolver el resultado completo con análisis detallado
+    res.json({
+      success: true,
+      message: `Alignment score actualizado a ${Math.round((alignmentResult.alignmentScore || 0) * 100)}%`,
+      debugInfo: {
+        hasAnalysis: !!alignmentResult.analysis,
+        hasMetadata: !!alignmentResult.metadata,
+        analysisKeys: Object.keys(alignmentResult.analysis || {}),
+        resultKeys: Object.keys(alignmentResult)
+      },
+      ...alignmentResult
+    });
+    
   } catch (error: any) {
     console.error("Error regenerando alignment score:", error);
     res.status(500).json({ 
