@@ -13,6 +13,7 @@ import aiRouter from './ai';
 import memosRouter from './memos';
 import fundsRouter from './funds';
 import usersRouter from './users';
+import investmentThesisRouter from './investmentThesis';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API prefix
@@ -32,6 +33,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(`${apiRouter}/memos`, memosRouter);
   app.use(`${apiRouter}/funds`, fundsRouter);
   app.use(`${apiRouter}/users`, usersRouter);
+  app.use(`${apiRouter}/investment-thesis`, investmentThesisRouter);
 
   // Global error handler
   app.use(errorHandler);

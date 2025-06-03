@@ -7,6 +7,7 @@ import { validateBody, isValidUUID } from "./middlewares";
 import { insertStartupSchema } from "@shared/schema";
 import { enhancedStartupAlignment } from "../services/openai";
 import { generateMemo } from "../services/memoGenerator";
+import { analyzeStartupAlignmentWithThesis } from "../services/openai/thesisAlignmentAnalyzer";
 
 const router = Router();
 
@@ -178,7 +179,7 @@ router.get("/:id/alignment", requireAuth, loadUserFromDb, async (req: Request, r
     
     // Si no tiene análisis, generarlo
     console.log("🔄 Generando nuevo análisis de alineamiento");
-    const alignmentResult = await enhancedStartupAlignment(startupId);
+    const alignmentResult = await analyzeStartupAlignmentWithThesis(startupId, req.user?.fundId);
     res.json(alignmentResult);
     
   } catch (error: any) {

@@ -305,3 +305,75 @@ export const entitySchema = z.object({
 });
 
 export type Entity = z.infer<typeof entitySchema>;
+
+
+export const investmentThesis = pgTable("investment_thesis", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fundId: text("fund_id").notNull().references(() => funds.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  version: integer("version").default(1),
+  isActive: boolean("is_active").default(true),
+  
+  // Criterios principales
+  preferredVerticals: jsonb("preferred_verticals").notNull(),
+  preferredStages: jsonb("preferred_stages").notNull(),
+  geographicFocus: jsonb("geographic_focus").notNull(),
+  
+  // Criterios financieros
+  ticketSizeMin: numeric("ticket_size_min"),
+  ticketSizeMax: numeric("ticket_size_max"),
+  targetOwnershipMin: real("target_ownership_min"),
+  targetOwnershipMax: real("target_ownership_max"),
+  expectedReturns: jsonb("expected_returns"),
+  
+  // Criterios de evaluación
+  evaluationCriteria: jsonb("evaluation_criteria").notNull(),
+  
+  // Contexto y filosofía
+  investmentPhilosophy: text("investment_philosophy").notNull(),
+  valueProposition: text("value_proposition").notNull(),
+  decisionProcess: text("decision_process"),
+  riskAppetite: text("risk_appetite"),
+  
+  // Criterios específicos
+  verticalSpecificCriteria: jsonb("vertical_specific_criteria"),
+  redFlags: jsonb("red_flags"),
+  mustHaves: jsonb("must_haves"),
+  
+  // Metadatos
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
+// Tipos para Investment Thesis
+export type InvestmentThesis = typeof investmentThesis.$inferSelect;
+export type InsertInvestmentThesis = typeof investmentThesis.$inferInsert;
+
+// Schema de validación
+export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis, {
+  name: z.string().min(1, "Name is required"),
+  preferredVerticals: z.array(z.object({
+    vertical: z.string(),
+    weight: z.number().min(0).max(1),
+    criteria: z.string().optional()
+  })),
+  preferredStages: z.array(z.object({
+    stage: z.string(),
+    weight: z.number().min(0).max(1),
+    ticketRange: z.object({
+      min: z.number(),
+      max: z.number()
+    }).optional()
+  })),
+  evaluationCriteria: z.object({
+    team: z.object({ weight: z.number(), subcriteria: z.record(z.any()) }),
+    market: z.object({ weight: z.number(), subcriteria: z.record(z.any()) }),
+    product: z.object({ weight: z.number(), subcriteria: z.record(z.any()) }),
+    traction: z.object({ weight: z.number(), subcriteria: z.record(z.any()) }),
+    financials: z.object({ weight: z.number(), subcriteria: z.record(z.any()) })
+  }),
+  investmentPhilosophy: z.string().min(50, "Investment philosophy must be detailed"),
+  valueProposition: z.string().min(30, "Value proposition is required")
+});
