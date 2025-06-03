@@ -498,6 +498,7 @@ export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis,
   ticketSizeMax: z.number().positive().optional(),
   redFlags: z.array(z.string()).optional(),
   mustHaves: z.array(z.string()).optional(),
+  // ✅ QUITAR fundId del schema - se asignará automáticamente
 }).refine(data => {
   if (data.ticketSizeMin && data.ticketSizeMax) {
     return data.ticketSizeMax >= data.ticketSizeMin;
@@ -506,6 +507,96 @@ export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis,
 }, {
   message: "Maximum ticket size must be greater than or equal to minimum ticket size",
   path: ["ticketSizeMax"]
+});
+
+
+export const createInvestmentThesisBodySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  preferredVerticals: z.array(z.object({
+    vertical: z.string(),
+    weight: z.number().min(0).max(1),
+    criteria: z.string().optional()
+  })).min(1, "At least one vertical is required"),
+  preferredStages: z.array(z.object({
+    stage: z.string(),
+    weight: z.number().min(0).max(1),
+    ticketRange: z.object({
+      min: z.number().optional(),
+      max: z.number().optional()
+    }).optional()
+  })).min(1, "At least one stage is required"),
+  geographicFocus: z.array(z.object({
+    region: z.string(),
+    weight: z.number().min(0).max(1)
+  })).min(1, "At least one geographic focus is required"),
+  evaluationCriteria: z.object({
+    team: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    market: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    product: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    traction: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    businessModel: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    fundFit: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    })
+  }),
+  investmentPhilosophy: z.string().min(50, "Investment philosophy must be detailed"),
+  valueProposition: z.string().min(30, "Value proposition is required"),
+  ticketSizeMin: z.number().positive().optional(),
+  ticketSizeMax: z.number().positive().optional(),
+  targetOwnershipMin: z.number().min(0).max(100).optional(),
+  targetOwnershipMax: z.number().min(0).max(100).optional(),
+  expectedReturns: z.record(z.any()).optional(),
+  decisionProcess: z.string().optional(),
+  riskAppetite: z.string().optional(),
+  verticalSpecificCriteria: z.record(z.any()).optional(),
+  redFlags: z.array(z.string()).optional(),
+  mustHaves: z.array(z.string()).optional(),
+  version: z.number().int().positive().optional(),
+  isActive: z.boolean().optional()
+}).refine(data => {
+  if (data.ticketSizeMin && data.ticketSizeMax) {
+    return data.ticketSizeMax >= data.ticketSizeMin;
+  }
+  return true;
+}, {
+  message: "Maximum ticket size must be greater than or equal to minimum ticket size",
+  path: ["ticketSizeMax"]
+}).refine(data => {
+  if (data.targetOwnershipMin && data.targetOwnershipMax) {
+    return data.targetOwnershipMax >= data.targetOwnershipMin;
+  }
+  return true;
+}, {
+  message: "Maximum ownership must be greater than or equal to minimum ownership",
+  path: ["targetOwnershipMax"]
 });
 
 // Schema de validación para Due Diligence Templates - NUEVO SCHEMA
