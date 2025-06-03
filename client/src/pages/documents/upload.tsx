@@ -24,6 +24,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { useActiveDDTemplate } from "@/hooks/useDueDiligence";
 import { 
   Upload, 
   ArrowLeft, 
@@ -56,6 +57,13 @@ export default function UploadDocument() {
   const [documentDescription, setDocumentDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: activeTemplate } = useActiveDDTemplate();
+  const categoryOptions = activeTemplate?.categories.map(cat => ({
+    value: cat.key,
+    label: cat.name,
+    description: cat.description
+  })) || [];
   
   // Fetch all startups
   const { data: startups, isLoading: isLoadingStartups } = useQuery({
@@ -168,51 +176,6 @@ export default function UploadDocument() {
     fileInputRef.current?.click();
   };
 
-  // Document type icon and color mapping
-  const typeConfig = {
-    'pitch-deck': { 
-      icon: FileText, 
-      color: "text-amber-600", 
-      bg: "bg-amber-100", 
-      border: "border-amber-200",
-      label: "Pitch Deck"
-    },
-    'financials': { 
-      icon: FileText, 
-      color: "text-green-600", 
-      bg: "bg-green-100", 
-      border: "border-green-200",
-      label: "Financial Documents" 
-    },
-    'legal': { 
-      icon: FileText, 
-      color: "text-blue-600", 
-      bg: "bg-blue-100", 
-      border: "border-blue-200",
-      label: "Legal Documents" 
-    },
-    'tech': { 
-      icon: FileText, 
-      color: "text-indigo-600", 
-      bg: "bg-indigo-100", 
-      border: "border-indigo-200",
-      label: "Technical Documents" 
-    },
-    'market': { 
-      icon: FileText, 
-      color: "text-purple-600", 
-      bg: "bg-purple-100", 
-      border: "border-purple-200",
-      label: "Market Analysis" 
-    },
-    'other': { 
-      icon: FileText, 
-      color: "text-slate-600", 
-      bg: "bg-slate-100", 
-      border: "border-slate-200",
-      label: "Other Document" 
-    }
-  };
   
   return (
     <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
@@ -326,42 +289,14 @@ export default function UploadDocument() {
                     <SelectValue placeholder="Select document type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pitch-deck">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-amber-500 mr-2"></div>
-                        Pitch Deck
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="financials">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-                        Financial Documents
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="legal">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-blue-500 mr-2"></div>
-                        Legal Documents
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="tech">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-indigo-500 mr-2"></div>
-                        Technical Documents
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="market">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-purple-500 mr-2"></div>
-                        Market Analysis
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="other">
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-slate-500 mr-2"></div>
-                        Other
-                      </div>
-                    </SelectItem>
+                    {categoryOptions.length === 0 && (
+                      <div className="p-2 text-slate-500">No categories</div>
+                    )}
+                    {categoryOptions.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value} title={opt.description || ''}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

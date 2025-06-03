@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import DueDiligenceProgressComponent, { DueDiligenceProgress as DDProgressType } from "@/components/DueDiligenceProgress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -642,74 +643,10 @@ export default function StartupDetail() {
                   <Skeleton className="h-16 w-full" />
                 </div>
               ) : (
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <Label className="text-base font-medium">Overall Progress</Label>
-                      <span className="text-sm font-medium">{dueDiligence?.percentage || 0}%</span>
-                    </div>
-                    <Progress 
-                      value={dueDiligence?.percentage || 0} 
-                      className="h-2.5"
-                      color={dueDiligence?.percentage >= 75 ? "bg-green-500" :
-                             dueDiligence?.percentage >= 40 ? "bg-amber-500" :
-                             "bg-blue-500"}
-                    />
-                    <div className="flex justify-between text-xs text-slate-500">
-                      <span>{dueDiligence?.completedItems || 0} of {dueDiligence?.totalItems || 0} items completed</span>
-                      <span>Last updated: {dueDiligence ? formatDate(dueDiligence.lastUpdated) : "—"}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {dueDiligence && dueDiligence.categories && Object.entries(dueDiligence.categories).map(([key, category]) => (
-                      <div key={key} className="space-y-2 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <Label className="capitalize flex items-center">
-                              {getCategoryIcon(key)}
-                              {key.replace('-', ' ')}
-                              <Badge 
-                                variant="outline" 
-                                className={`ml-2 text-xs px-1.5 py-0.5 ${
-                                  category.importance === 'high' ? 'border-red-200 text-red-700' :
-                                  category.importance === 'medium' ? 'border-amber-200 text-amber-700' :
-                                  'border-slate-200 text-slate-600'
-                                }`}
-                              >
-                                {category.importance}
-                              </Badge>
-                            </Label>
-                            <p className="text-xs text-slate-500 mt-1">{category.description}</p>
-                          </div>
-                          <span className="text-xs font-medium px-2 py-0.5 bg-white rounded-full border border-slate-200">
-                            {category.uploaded}/{category.required}
-                          </span>
-                        </div>
-                        <Progress 
-                          value={category.completion} 
-                          className="h-1.5" 
-                          color={
-                            category.completion >= 100 ? "bg-green-500" :
-                            category.completion >= 50 ? "bg-amber-500" :
-                            "bg-blue-500"
-                          }
-                        />
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-500">
-                            {category.completion === 100 ? "Complete" : 
-                             category.missingDocs > 0 ? `${category.missingDocs} missing` : 
-                             "In progress"}
-                          </span>
-                          <span className="font-medium text-slate-700">{category.completion}%</span>
-                          </div>
-                     </div>
-                   ))}
-                 </div>
-               </div>
-             )}
-           </CardContent>
-         </Card>
+                dueDiligence && <DueDiligenceProgressComponent progress={dueDiligence as DDProgressType} />
+              )}
+            </CardContent>
+          </Card>
 
          {/* Quick Actions */}
          <Card className="border-slate-200 shadow-sm overflow-hidden">
