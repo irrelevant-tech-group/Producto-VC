@@ -126,12 +126,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       label: 'Ask AI',
       badge: { text: 'AI', color: 'primary' } 
     },
-    { 
-      path: '/analytics', 
-      icon: TrendingUp, 
-      label: 'Analytics',
-      badge: { text: 'New', color: 'success' }
-    }
+
   ];
 
   const renderNavItem = (item: any) => {
