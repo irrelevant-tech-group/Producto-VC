@@ -13,7 +13,6 @@ import {
   FileText,
   MapPin,
   FilterX,
-  Trash2,
   ChevronRight,
   X,
   SlidersHorizontal,
@@ -45,7 +44,7 @@ export default function StartupsList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [verticalFilter, setVerticalFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("updated"); // new: sorting option
+  const [sortBy, setSortBy] = useState("updated");
 
   // Filter startups based on search and filters
   const filteredStartups = startups
@@ -98,6 +97,18 @@ export default function StartupsList() {
     setSearchQuery("");
     setStatusFilter("all");
     setVerticalFilter("all");
+  };
+
+  // Get status badge configuration
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      active: { color: "bg-blue-100 text-blue-800", label: "Active" },
+      invested: { color: "bg-green-100 text-green-800", label: "Invested" },
+      standby: { color: "bg-amber-100 text-amber-800", label: "Standby" },
+      declined: { color: "bg-red-100 text-red-800", label: "Declined" },
+      archived: { color: "bg-slate-100 text-slate-800", label: "Archived" },
+    };
+    return statusConfig[status] || statusConfig.active;
   };
 
   return (
@@ -185,7 +196,7 @@ export default function StartupsList() {
           )}
         </div>
         
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
@@ -206,12 +217,13 @@ export default function StartupsList() {
           
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="border-slate-200 focus:border-blue-500 focus:ring-blue-500">
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder="All Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="invested">Invested</SelectItem>
+              <SelectItem value="standby">Standby</SelectItem>
               <SelectItem value="declined">Declined</SelectItem>
               <SelectItem value="archived">Archived</SelectItem>
             </SelectContent>
@@ -219,7 +231,7 @@ export default function StartupsList() {
           
           <Select value={verticalFilter} onValueChange={setVerticalFilter}>
             <SelectTrigger className="border-slate-200 focus:border-blue-500 focus:ring-blue-500">
-              <SelectValue placeholder="Vertical" />
+              <SelectValue placeholder="All Verticals" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Verticals</SelectItem>
@@ -279,13 +291,8 @@ export default function StartupsList() {
               .slice(0, 2)
               .toUpperCase();
 
-            // Determine status badge color and style
-            const statusConfig = {
-              active: { color: "bg-blue-100 text-blue-800", icon: "" },
-              invested: { color: "bg-green-100 text-green-800", icon: "" },
-              declined: { color: "bg-red-100 text-red-800", icon: "" },
-              archived: { color: "bg-slate-100 text-slate-800", icon: "" },
-            }[startup.status] || { color: "bg-slate-100 text-slate-800", icon: "" };
+            // Get status configuration
+            const statusConfig = getStatusBadge(startup.status);
 
             return (
               <Link key={startup.id} href={`/startups/${startup.id}`}>
@@ -312,7 +319,7 @@ export default function StartupsList() {
                           </div>
                         </div>
                         <Badge className={`font-medium ${statusConfig.color}`}>
-                          {startup.status.charAt(0).toUpperCase() + startup.status.slice(1)}
+                          {statusConfig.label}
                         </Badge>
                       </div>
                     </div>
@@ -343,53 +350,52 @@ export default function StartupsList() {
                     </div>
 
                     <div className="p-5 space-y-2">
-  <div className="grid grid-cols-2 gap-2">
-    <p className="flex items-center text-sm text-slate-600">
-      <MapPin className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-      <span className="truncate">{startup.location}</span>
-    </p>
-    <p className="flex items-center text-sm text-slate-600">
-      <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-      <span className="truncate">{startup.amountSought ? `$${startup.amountSought.toLocaleString()}` : 'Not specified'}</span>
-    </p>
-  </div>
-  <div className="grid grid-cols-2 gap-2">
-    <p className="flex items-center text-sm text-slate-600">
-      <FileText className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-      <span className="truncate">{startup.documentsCount} {startup.documentsCount === 1 ? 'doc' : 'docs'}</span>
-    </p>
-    {/* Reemplazar la fecha con el Alignment Score si existe */}
-    {startup.alignmentScore !== undefined ? (
-      <p className="flex items-center text-sm text-slate-600">
-        <BarChart2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-        <div className="flex items-center">
-          <div className="w-12 h-1.5 bg-slate-200 rounded-full mr-1.5">
-            <div 
-              className={`h-1.5 rounded-full ${
-                startup.alignmentScore >= 0.7 ? "bg-green-500" :
-                startup.alignmentScore >= 0.4 ? "bg-amber-500" :
-                "bg-red-500"
-              }`}
-              style={{ width: `${startup.alignmentScore * 100}%` }}
-            ></div>
-          </div>
-          <span>{Math.round(startup.alignmentScore * 100)}%</span>
-        </div>
-      </p>
-    ) : (
-      <p className="flex items-center text-sm text-slate-600">
-        <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
-        <span className="truncate">
-          {new Date(startup.lastUpdated).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric',
-            year: new Date(startup.lastUpdated).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
-          })}
-        </span>
-      </p>
-    )}
-  </div>
-</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <p className="flex items-center text-sm text-slate-600">
+                          <MapPin className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{startup.location}</span>
+                        </p>
+                        <p className="flex items-center text-sm text-slate-600">
+                          <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{startup.amountSought ? `$${startup.amountSought.toLocaleString()}` : 'Not specified'}</span>
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <p className="flex items-center text-sm text-slate-600">
+                          <FileText className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{startup.documentsCount} {startup.documentsCount === 1 ? 'doc' : 'docs'}</span>
+                        </p>
+                        {startup.alignmentScore !== undefined ? (
+                          <p className="flex items-center text-sm text-slate-600">
+                            <BarChart2 className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                            <div className="flex items-center">
+                              <div className="w-12 h-1.5 bg-slate-200 rounded-full mr-1.5">
+                                <div 
+                                  className={`h-1.5 rounded-full ${
+                                    startup.alignmentScore >= 0.7 ? "bg-green-500" :
+                                    startup.alignmentScore >= 0.4 ? "bg-amber-500" :
+                                    "bg-red-500"
+                                  }`}
+                                  style={{ width: `${startup.alignmentScore * 100}%` }}
+                                ></div>
+                              </div>
+                              <span>{Math.round(startup.alignmentScore * 100)}%</span>
+                            </div>
+                          </p>
+                        ) : (
+                          <p className="flex items-center text-sm text-slate-600">
+                            <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">
+                              {new Date(startup.lastUpdated).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric',
+                                year: new Date(startup.lastUpdated).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+                              })}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
                     
                     <div className="px-5 py-3 border-t border-slate-100 flex justify-end">
                       <Button 

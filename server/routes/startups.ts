@@ -54,12 +54,19 @@ router.get("/:id", requireAuth, loadUserFromDb, async (req: Request, res: Respon
       
       // Añadir campos opcionales de forma segura
       amountSought: startup.amountSought ? Number(startup.amountSought) : null,
+      valuation: startup.valuation ? Number(startup.valuation) : null,
       currency: startup.currency || "USD",
       primaryContact: startup.primaryContact || {},
       firstContactDate: startup.firstContactDate || null,
       description: startup.description || "",
       alignmentScore: startup.alignmentScore || null,
-      fundId: startup.fundId || null
+      fundId: startup.fundId || null,
+      
+      // Nuevos campos de inversión
+      investmentDate: startup.investmentDate || null,
+      investmentAmount: startup.investmentAmount ? Number(startup.investmentAmount) : null,
+      ownershipPercentage: startup.ownershipPercentage || null,
+      decisionReason: startup.decisionReason || null
     };
     
     res.json(response);
@@ -86,6 +93,11 @@ router.post("/", requireAuth, loadUserFromDb, async (req: Request, res: Response
     // Convertir firstContactDate de string a Date
     if (data.firstContactDate) {
       data.firstContactDate = new Date(data.firstContactDate);
+    }
+    
+    // Convertir investmentDate de string a Date
+    if (data.investmentDate) {
+      data.investmentDate = new Date(data.investmentDate);
     }
     
     const startup = await storage.createStartup(data);
@@ -285,6 +297,182 @@ router.post("/:id/regenerate-alignment", requireAuth, loadUserFromDb, async (req
   }
 });
 
+// ====== NUEVAS RUTAS PARA INVESTMENT TRACKING ======
+
+// Marcar startup como invertida
+router.post("/:id/mark-invested", requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const startupId = req.params.id;
+    const { investmentAmount, investmentDate, ownershipPercentage, decisionReason } = req.body;
+    
+    // Verificar que el startup existe
+    const startup = await storage.getStartup(startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    // Verificar acceso al startup
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this startup" });
+    }
+    
+    // Verificar permisos
+    if (req.user?.role !== 'admin' && req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "Admin privileges required" });
+    }
+    
+    // Actualizar startup como invertida
+    const updatedStartup = await storage.updateStartup(startupId, {
+      status: 'invested',
+      investmentAmount: investmentAmount || null,
+      investmentDate: investmentDate ? new Date(investmentDate) : new Date(),
+      ownershipPercentage: ownershipPercentage || null,
+      decisionReason: decisionReason || "Investment approved"
+    });
+    
+    // Registrar actividad
+    await storage.createActivity({
+      type: 'startup_invested',
+      startupId,
+      userId: req.user?.id,
+      content: `Investment confirmed for ${startup.name}${investmentAmount ? ` - Amount: ${investmentAmount}` : ''}`,
+      metadata: {
+        investmentAmount,
+        ownershipPercentage,
+        previousStatus: startup.status,
+        investmentDate: investmentDate || new Date().toISOString()
+      },
+      fundId: startup.fundId
+    });
+    
+    res.json({
+      message: `${startup.name} marked as invested`,
+      startup: updatedStartup
+    });
+  } catch (error: any) {
+    console.error(`Error marking startup as invested:`, error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Marcar startup como rechazada
+router.post("/:id/mark-declined", requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const startupId = req.params.id;
+    const { decisionReason } = req.body;
+    
+    const startup = await storage.getStartup(startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    // Verificar acceso al startup
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this startup" });
+    }
+    
+    if (req.user?.role !== 'admin' && req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "Admin privileges required" });
+    }
+    
+    const updatedStartup = await storage.updateStartup(startupId, {
+      status: 'declined',
+      decisionReason: decisionReason || "Investment declined"
+    });
+    
+    await storage.createActivity({
+      type: 'startup_declined',
+      startupId,
+      userId: req.user?.id,
+      content: `Investment declined for ${startup.name}${decisionReason ? `: ${decisionReason}` : ''}`,
+      metadata: {
+        decisionReason,
+        previousStatus: startup.status
+      },
+      fundId: startup.fundId
+    });
+    
+    res.json({
+      message: `${startup.name} marked as declined`,
+      startup: updatedStartup
+    });
+  } catch (error: any) {
+    console.error(`Error marking startup as declined:`, error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Marcar startup en standby
+router.post("/:id/mark-standby", requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const startupId = req.params.id;
+    const { decisionReason } = req.body;
+    
+    const startup = await storage.getStartup(startupId);
+    if (!startup) {
+      return res.status(404).json({ message: "Startup not found" });
+    }
+    
+    // Verificar acceso al startup
+    const fundId = req.user?.fundId;
+    if (fundId && 
+        startup.fundId && 
+        fundId !== startup.fundId && 
+        req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "No access to this startup" });
+    }
+    
+    if (req.user?.role !== 'admin' && req.user?.email !== process.env.SUPERADMIN_EMAIL) {
+      return res.status(403).json({ message: "Admin privileges required" });
+    }
+    
+    const updatedStartup = await storage.updateStartup(startupId, {
+      status: 'standby',
+      decisionReason: decisionReason || "Moved to standby for further evaluation"
+    });
+    
+    await storage.createActivity({
+      type: 'startup_standby',
+      startupId,
+      userId: req.user?.id,
+      content: `${startup.name} moved to standby${decisionReason ? `: ${decisionReason}` : ''}`,
+      metadata: {
+        decisionReason,
+        previousStatus: startup.status
+      },
+      fundId: startup.fundId
+    });
+    
+    res.json({
+      message: `${startup.name} moved to standby`,
+      startup: updatedStartup
+    });
+  } catch (error: any) {
+    console.error(`Error moving startup to standby:`, error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Obtener estadísticas de inversión
+router.get("/investment-stats", requireAuth, loadUserFromDb, async (req: Request, res: Response) => {
+  try {
+    const fundId = req.user?.email === process.env.SUPERADMIN_EMAIL ? undefined : req.user?.fundId;
+    const stats = await storage.getInvestmentStats(fundId);
+    res.json(stats);
+  } catch (error: any) {
+    console.error("Error getting investment stats:", error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ====== MEMOS ROUTES ======
 
 // Get memos for startup
@@ -374,7 +562,8 @@ router.patch("/:id", requireAuth, loadUserFromDb, async (req: Request, res: Resp
     // Filtrar campos actualizables
     const allowedFields = [
       'name', 'vertical', 'stage', 'location', 'status',
-      'amountSought', 'currency', 'primaryContact', 'description'
+      'amountSought', 'valuation', 'currency', 'primaryContact', 'description',
+      'investmentAmount', 'ownershipPercentage', 'decisionReason'
     ];
     
     const updates: any = {};
@@ -387,6 +576,11 @@ router.patch("/:id", requireAuth, loadUserFromDb, async (req: Request, res: Resp
     // Convertir firstContactDate si está presente
     if ('firstContactDate' in req.body) {
       updates.firstContactDate = req.body.firstContactDate ? new Date(req.body.firstContactDate) : null;
+    }
+    
+    // Convertir investmentDate si está presente
+    if ('investmentDate' in req.body) {
+      updates.investmentDate = req.body.investmentDate ? new Date(req.body.investmentDate) : null;
     }
     
     // Realizar la actualización

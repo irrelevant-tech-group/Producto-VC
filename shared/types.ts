@@ -36,7 +36,7 @@ export interface AiQueryResponse {
   }>;
 }
 
-// Investment memo related types
+// Investment memo related types - ACTUALIZADO
 export interface MemoSection {
   title: string;
   content: string;
@@ -45,6 +45,7 @@ export interface MemoSection {
     content: string;
   }>;
   lastEdited?: string;
+  status?: 'draft' | 'review' | 'final' | 'approved' | 'rejected';
 }
 
 export interface MemoGenerationRequest {
@@ -55,24 +56,30 @@ export interface MemoGenerationRequest {
 export interface MemoGenerationResponse {
   memoId: string;
   startupId: string;
-  status: 'draft' | 'review' | 'final';
+  status: 'draft' | 'review' | 'final' | 'approved' | 'rejected';
   sections: MemoSection[];
 }
 
-// Startup-related types
+// Startup-related types - ACTUALIZADO
 export interface StartupSummary {
   id: string;
   name: string;
   vertical: string;
   stage: string;
   location: string;
-  amountSought: number;
+  amountSought: number | null;
+  valuation: number | null;
   currency: string;
-  status: string;
+  status: 'active' | 'invested' | 'standby' | 'declined' | 'archived';
   alignmentScore?: number;
   documentsCount: number;
   completionPercentage: number;
   lastUpdated: string;
+  fundId?: string | null;
+  investmentDate?: string | null;
+  investmentAmount?: number | null;
+  ownershipPercentage?: number | null;
+  decisionReason?: string | null;
 }
 
 export interface DueDiligenceProgress {
@@ -85,6 +92,47 @@ export interface DueDiligenceProgress {
       uploaded: number;
     }
   };
+}
+
+// Nuevo tipo para tracking de inversiones
+export interface InvestmentDetails {
+  startupId: string;
+  startupName: string;
+  investmentDate: string;
+  investmentAmount: number;
+  valuation: number;
+  ownershipPercentage: number;
+  currency: string;
+  stage: string;
+  vertical: string;
+}
+
+// Nuevo tipo para estadísticas de inversión
+export interface InvestmentStats {
+  totalInvestments: number;
+  totalAmountInvested: number;
+  averageInvestment: number;
+  portfolioCompanies: number;
+  byStage: {
+    [stage: string]: {
+      count: number;
+      totalAmount: number;
+    }
+  };
+  byVertical: {
+    [vertical: string]: {
+      count: number;
+      totalAmount: number;
+    }
+  };
+  byStatus: {
+    active: number;
+    invested: number;
+    standby: number;
+    declined: number;
+    archived: number;
+  };
+  currency: string;
 }
 
 // Dashboard metrics
@@ -113,4 +161,5 @@ export interface ActivityItem {
   timestamp: string;
   content?: string;
   metadata?: Record<string, any>;
+  fundId?: string;
 }

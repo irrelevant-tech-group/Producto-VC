@@ -114,6 +114,13 @@ export default function MemosList() {
       border: "border-amber-200",
       label: "In Review" 
     },
+    final: { 
+      icon: FileText, 
+      color: "text-blue-600", 
+      bg: "bg-blue-100", 
+      border: "border-blue-200",
+      label: "Final" 
+    },
     approved: { 
       icon: CheckCircle, 
       color: "text-green-600", 
@@ -277,31 +284,43 @@ export default function MemosList() {
           className="mb-6"
         >
           <TabsList className="bg-slate-100 p-1 border border-slate-200 rounded-lg">
-            <TabsTrigger 
-              value="all" 
-              className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
-            >
-              All
-            </TabsTrigger>
-            <TabsTrigger 
-              value="draft"
-              className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
-            >
-              Drafts
-            </TabsTrigger>
-            <TabsTrigger 
-              value="review"
-              className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
-            >
-              In Review
-            </TabsTrigger>
-            <TabsTrigger 
-              value="approved"
-              className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
-            >
-              Approved
-            </TabsTrigger>
-          </TabsList>
+  <TabsTrigger 
+    value="all" 
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    All
+  </TabsTrigger>
+  <TabsTrigger 
+    value="draft"
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    Drafts
+  </TabsTrigger>
+  <TabsTrigger 
+    value="review"
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    In Review
+  </TabsTrigger>
+  <TabsTrigger 
+    value="final"
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    Final
+  </TabsTrigger>
+  <TabsTrigger 
+    value="approved"
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    Approved
+  </TabsTrigger>
+  <TabsTrigger 
+    value="rejected"
+    className="data-[state=active]:bg-white data-[state=active]:text-slate-800 data-[state=active]:shadow-sm rounded-md"
+  >
+    Rejected
+  </TabsTrigger>
+</TabsList>
         </Tabs>
       )}
 

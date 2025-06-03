@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,6 +22,7 @@ const formSchema = z.object({
   stage: z.string(),
   location: z.string().min(2, "Location is required"),
   amountSought: z.number().optional(),
+  valuation: z.number().optional(),
   currency: z.string(),
   status: z.string().default("active"),
   description: z.string().optional(),
@@ -42,6 +43,7 @@ export default function StartupNew() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [equityPercentage, setEquityPercentage] = useState<number | null>(null);
 
   const {
     register,
@@ -59,12 +61,25 @@ export default function StartupNew() {
       currency: "USD",
       status: "active",
       description: "",
-      firstContactDate: new Date().toISOString().split('T')[0], // Today's date in YYYY-MM-DD format
+      firstContactDate: new Date().toISOString().split('T')[0],
       contactName: "",
       contactEmail: "",
       contactPosition: ""
     },
   });
+
+  // Watch for changes in amountSought and valuation to calculate equity
+  const amountSought = watch("amountSought");
+  const valuation = watch("valuation");
+
+  useEffect(() => {
+    if (amountSought && valuation && amountSought > 0 && valuation > 0) {
+      const equity = (amountSought / valuation) * 100;
+      setEquityPercentage(Math.round(equity * 100) / 100); // Round to 2 decimal places
+    } else {
+      setEquityPercentage(null);
+    }
+  }, [amountSought, valuation]);
 
   const createStartupMutation = useMutation({
     mutationFn: createStartup,
@@ -97,6 +112,7 @@ export default function StartupNew() {
     const formattedData = {
       ...data,
       amountSought: data.amountSought ? Number(data.amountSought) : undefined,
+      valuation: data.valuation ? Number(data.valuation) : undefined,
       // Create the primaryContact object from the individual fields
       primaryContact: {
         name: data.contactName,
@@ -232,7 +248,7 @@ export default function StartupNew() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="amountSought">Amount Sought</Label>
                   <Input
@@ -240,6 +256,18 @@ export default function StartupNew() {
                     placeholder="e.g. 1000000"
                     type="number"
                     {...register("amountSought", { 
+                      setValueAs: value => value === "" ? undefined : Number(value)
+                    })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="valuation">Valuation</Label>
+                  <Input
+                    id="valuation"
+                    placeholder="e.g. 10000000"
+                    type="number"
+                    {...register("valuation", { 
                       setValueAs: value => value === "" ? undefined : Number(value)
                     })}
                   />
@@ -263,6 +291,21 @@ export default function StartupNew() {
                   </Select>
                 </div>
               </div>
+
+              {/* Equity Calculation Display */}
+              {equityPercentage !== null && (
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium text-blue-900">Estimated Equity</h4>
+                      <p className="text-xs text-blue-700 mt-1">Based on amount sought and valuation</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-blue-800">{equityPercentage}%</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Primary Contact Information */}
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">

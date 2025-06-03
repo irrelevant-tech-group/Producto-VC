@@ -1,19 +1,28 @@
 import { useParams, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMemo, exportMemo, updateMemo } from "@/lib/api";
+import { fetchMemo, exportMemo, updateMemo, approveMemo, rejectMemo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, FileText, Download, Edit, Check } from "lucide-react";
+import { ArrowLeft, FileText, Download, Edit, Check, CheckCircle, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { MemoApprovalModal } from "@/components/modals/MemoApprovalModal";
 
 export default function MemoDetail() {
   const { id } = useParams();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [exportLoading, setExportLoading] = useState<string | null>(null);
+  
+  // Modal states
+  const [approvalModal, setApprovalModal] = useState<{
+    isOpen: boolean;
+    type: 'approve' | 'reject' | null;
+  }>({ isOpen: false, type: null });
 
   // Fetch memo details
   const {
@@ -25,6 +34,57 @@ export default function MemoDetail() {
     queryFn: () => fetchMemo(id as string),
     enabled: !!id,
   });
+
+  // Approval mutations
+  const approveMutation = useMutation({
+    mutationFn: (data: any) => approveMemo(id as string, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/memos', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/startups'] });
+      setApprovalModal({ isOpen: false, type: null });
+      toast({
+        title: "Memo Approved",
+        description: "The memo has been approved successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to approve memo: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (data: any) => rejectMemo(id as string, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/memos', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/startups'] });
+      setApprovalModal({ isOpen: false, type: null });
+      toast({
+        title: "Memo Rejected",
+        description: "The memo has been rejected.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to reject memo: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleApprovalSubmit = (data: any) => {
+    if (approvalModal.type === 'approve') {
+      approveMutation.mutate(data);
+    } else if (approvalModal.type === 'reject') {
+      rejectMutation.mutate(data);
+    }
+  };
+
+  const isApprovalLoading = approveMutation.isPending || rejectMutation.isPending;
 
   // Handle document export
   const handleExport = async (format: 'pdf' | 'docx' | 'slides') => {
@@ -52,12 +112,24 @@ export default function MemoDetail() {
     }
   };
 
+  // Get status badge configuration
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      draft: { variant: 'outline', label: 'Draft' },
+      review: { variant: 'secondary', label: 'In Review' },
+      final: { variant: 'default', label: 'Final' },
+      approved: { variant: 'success', label: 'Approved' },
+      rejected: { variant: 'destructive', label: 'Rejected' },
+    };
+    return statusConfig[status] || statusConfig.draft;
+  };
+
   if (error) {
     return (
       <div className="py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mx-auto text-center">
-          <h1 className="text-2xl font-bold text-error-600">Error Loading Memo</h1>
-          <p className="mt-2 text-secondary-600">
+          <h1 className="text-2xl font-bold text-red-600">Error Loading Memo</h1>
+          <p className="mt-2 text-slate-600">
             We couldn't find the memo you're looking for. It may have been removed or the ID is invalid.
           </p>
           <Button
@@ -76,7 +148,7 @@ export default function MemoDetail() {
     <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="mb-6">
         <Link href="/memos">
-          <a className="flex items-center text-sm text-secondary-600 hover:text-primary-600 mb-2">
+          <a className="flex items-center text-sm text-slate-600 hover:text-blue-600 mb-2">
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back to memos
           </a>
@@ -90,21 +162,21 @@ export default function MemoDetail() {
         ) : memo ? (
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start">
             <div>
-              <h1 className="text-2xl font-bold text-secondary-900">
+              <h1 className="text-2xl font-bold text-slate-900">
                 Investment Memo v{memo.version}
               </h1>
-              <p className="mt-1 text-sm text-secondary-500">
+              <p className="mt-1 text-sm text-slate-500">
                 Created {new Date(memo.createdAt).toLocaleDateString()}
                 {memo.updatedAt && memo.updatedAt !== memo.createdAt && 
                   ` • Updated ${new Date(memo.updatedAt).toLocaleDateString()}`}
               </p>
             </div>
             <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
-              <Badge variant={
-                memo.status === 'draft' ? 'outline' : 
-                memo.status === 'review' ? 'secondary' : 'success'
-              } className="text-sm capitalize">
-                {memo.status}
+              <Badge 
+                variant={getStatusBadge(memo.status).variant as any} 
+                className="text-sm capitalize"
+              >
+                {getStatusBadge(memo.status).label}
               </Badge>
             </div>
           </div>
@@ -160,6 +232,30 @@ export default function MemoDetail() {
             </>
           )}
         </Button>
+
+        {/* Approval Buttons - Solo mostrar si el memo está en estado 'final' o 'review' */}
+        {memo && (memo.status === 'final' || memo.status === 'review') && (
+          <>
+            <Button
+              onClick={() => setApprovalModal({ isOpen: true, type: 'approve' })}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+              disabled={isApprovalLoading}
+            >
+              <CheckCircle className="h-4 w-4" />
+              Approve Memo
+            </Button>
+            
+            <Button
+              onClick={() => setApprovalModal({ isOpen: true, type: 'reject' })}
+              variant="outline"
+              className="flex items-center gap-2 border-red-200 text-red-700 hover:bg-red-50"
+              disabled={isApprovalLoading}
+            >
+              <XCircle className="h-4 w-4" />
+              Reject Memo
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Memo Content */}
@@ -182,14 +278,14 @@ export default function MemoDetail() {
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between py-4">
                 <CardTitle className="text-xl">{section.title}</CardTitle>
-                <Button variant="ghost" size="sm" className="text-secondary-500">
+                <Button variant="ghost" size="sm" className="text-slate-500">
                   <Edit className="h-4 w-4 mr-1" />
                   Edit
                 </Button>
               </CardHeader>
               <CardContent className="pt-0">
                 {/* Display memo content with proper formatting */}
-                <div className="prose prose-secondary max-w-none">
+                <div className="prose prose-slate max-w-none">
                   {section.content.split('\n\n').map((paragraph, pidx) => (
                     <p key={pidx}>{paragraph}</p>
                   ))}
@@ -197,11 +293,11 @@ export default function MemoDetail() {
                 
                 {/* Show sources if available */}
                 {section.sources && section.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-secondary-200">
-                    <h4 className="text-sm font-semibold text-secondary-600 mb-2">Sources</h4>
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2">Sources</h4>
                     <div className="space-y-2">
                       {section.sources.map((source, sidx) => (
-                        <div key={sidx} className="text-xs p-2 bg-secondary-50 rounded-md">
+                        <div key={sidx} className="text-xs p-2 bg-slate-50 rounded-md">
                           {source.content.length > 150 
                             ? `${source.content.substring(0, 150)}...` 
                             : source.content}
@@ -217,16 +313,26 @@ export default function MemoDetail() {
       ) : (
         <Card>
           <CardContent className="p-6 text-center">
-            <div className="h-12 w-12 mx-auto text-secondary-400">
+            <div className="h-12 w-12 mx-auto text-slate-400">
               <FileText />
             </div>
             <h3 className="mt-2 text-lg font-medium">No content available</h3>
-            <p className="mt-1 text-secondary-500">
+            <p className="mt-1 text-slate-500">
               This memo appears to be empty or is still being generated.
             </p>
           </CardContent>
         </Card>
       )}
+
+      {/* Memo Approval Modal */}
+      <MemoApprovalModal
+        isOpen={approvalModal.isOpen}
+        onClose={() => setApprovalModal({ isOpen: false, type: null })}
+        approvalType={approvalModal.type!}
+        memoVersion={memo?.version || 1}
+        onSubmit={handleApprovalSubmit}
+        isLoading={isApprovalLoading}
+      />
     </div>
   );
 }

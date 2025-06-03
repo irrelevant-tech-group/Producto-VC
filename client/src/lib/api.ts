@@ -60,6 +60,11 @@ export const createStartup = async (data: any) => {
     filteredData.amountSought = Number(data.amountSought);
   }
 
+  // Only include valuation if it exists and is a number
+  if (data.valuation !== undefined && data.valuation !== null && !isNaN(Number(data.valuation))) {
+    filteredData.valuation = Number(data.valuation);
+  }
+
   // Only include description if it exists and isn't empty
   if (data.description) {
     filteredData.description = data.description;
@@ -192,4 +197,32 @@ export const previewThesisContext = async (id: string) => {
   const res = await fetch(`/api/investment-thesis/${id}/context-preview`);
   if (!res.ok) throw new Error('Failed to fetch thesis context preview');
   return res.json();
+};
+
+
+// Investment Decision API
+export const markStartupAsInvested = async (id: string, data: InvestmentDecision) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-invested`, data);
+  return response.json();
+};
+
+export const markStartupAsDeclined = async (id: string, data: DecisionReason) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-declined`, data);
+  return response.json();
+};
+
+export const markStartupAsStandby = async (id: string, data: DecisionReason) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-standby`, data);
+  return response.json();
+};
+
+// Memo Approval API
+export const approveMemo = async (id: string, data: MemoApproval) => {
+  const response = await apiRequest('POST', `/api/memos/${id}/approve`, data);
+  return response.json();
+};
+
+export const rejectMemo = async (id: string, data: MemoRejection) => {
+  const response = await apiRequest('POST', `/api/memos/${id}/reject`, data);
+  return response.json();
 };

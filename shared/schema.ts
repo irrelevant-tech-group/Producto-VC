@@ -19,7 +19,7 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Enums (sin cambios)
+// Enums - ACTUALIZADOS
 export const startupVerticalEnum = pgEnum('startup_vertical', [
   'fintech',
   'saas',
@@ -36,8 +36,9 @@ export const startupStageEnum = pgEnum('startup_stage', [
 ]);
 export const startupStatusEnum = pgEnum('startup_status', [
   'active',
-  'declined',
   'invested',
+  'standby',
+  'declined',
   'archived'
 ]);
 export const currencyEnum = pgEnum('currency', [
@@ -63,10 +64,12 @@ export const processingStatusEnum = pgEnum('processing_status', [
 export const memoStatusEnum = pgEnum('memo_status', [
   'draft',
   'review',
-  'final'
+  'final',
+  'approved',
+  'rejected'
 ]);
 
-// Users - MODIFICADO para añadir campos de Clerk
+// Users - SIN CAMBIOS
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
@@ -81,7 +84,7 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Nueva tabla para fondos/organizaciones
+// Nueva tabla para fondos/organizaciones - SIN CAMBIOS
 export const funds = pgTable("funds", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -89,13 +92,12 @@ export const funds = pgTable("funds", {
   clerkOrgId: text("clerk_org_id").unique(),
   logoUrl: text("logo_url"),
   description: text("description"),
-  // metadata: jsonb("metadata"), // ❌ COMENTADO - no existe en DB
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   createdBy: integer("created_by").references(() => users.id),
 });
 
-// Startups - CORREGIDO para coincidir con DB actual
+// Startups - MODIFICADO con nuevos campos
 export const startups = pgTable("startups", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -103,17 +105,20 @@ export const startups = pgTable("startups", {
   stage: startupStageEnum("stage").notNull(),
   location: text("location").notNull(),
   amountSought: numeric("amount_sought"),
+  valuation: numeric("valuation"),
   currency: currencyEnum("currency").default('USD'),
   primaryContact: jsonb("primary_contact"),
   firstContactDate: date("first_contact_date"),
-  // description: text("description"), // ❌ COMENTADO - no existe en DB
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   status: startupStatusEnum("status").default('active'),
   alignmentScore: real("alignment_score"),
-  lastInteraction: timestamp("last_interaction"), // ✅ MANTENER nombre original
-  // metadata: jsonb("metadata"), // ❌ COMENTADO - no existe en DB
+  lastInteraction: timestamp("last_interaction"),
   fundId: text("fund_id").references(() => funds.id),
+  investmentDate: date("investment_date"),
+  investmentAmount: numeric("investment_amount"),
+  ownershipPercentage: real("ownership_percentage"),
+  decisionReason: text("decision_reason"),
 });
 
 // Resto de tablas sin cambios...
@@ -175,13 +180,9 @@ export const activities = pgTable("activities", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
   fundId: text("fund_id").references(() => funds.id),
-  // ❌ COMENTADOS - no existen en DB
-  // userName: text("user_name"),
-  // startupName: text("startup_name"),
-  // documentName: text("document_name"),
 });
 
-// Investment Thesis Table
+// Investment Thesis Table - SIN CAMBIOS
 export const investmentThesis = pgTable("investment_thesis", {
   id: uuid("id").primaryKey().defaultRandom(),
   fundId: text("fund_id").notNull().references(() => funds.id, { onDelete: 'cascade' }),
@@ -222,7 +223,7 @@ export const investmentThesis = pgTable("investment_thesis", {
   updatedBy: integer("updated_by").references(() => users.id),
 });
 
-// Relaciones actualizadas
+// Relaciones actualizadas - SIN CAMBIOS
 export const usersRelations = relations(users, ({ many, one }) => ({
   documents: many(documents),
   memos: many(memos),
@@ -279,7 +280,7 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   fund: one(funds, { fields: [activities.fundId], references: [funds.id] }),
 }));
 
-// Relaciones para Investment Thesis
+// Relaciones para Investment Thesis - SIN CAMBIOS
 export const investmentThesisRelations = relations(investmentThesis, ({ one }) => ({
   fund: one(funds, { fields: [investmentThesis.fundId], references: [funds.id] }),
   createdByUser: one(users, { 
@@ -314,18 +315,10 @@ export type InsertActivity = typeof activities.$inferInsert;
 export type InvestmentThesis = typeof investmentThesis.$inferSelect;
 export type InsertInvestmentThesis = typeof investmentThesis.$inferInsert;
 
-// Tipos adicionales
-export type InsertChunk = {
-  documentId: string;
-  startupId: string;
-  content: string;
-  metadata?: any;
-  fundId?: string;
-};
-
-// Esquemas de validación
+// Esquemas de validación - ACTUALIZADOS
 export const insertStartupSchema = createInsertSchema(startups, {
   amountSought: z.number().min(0, "Amount sought must be positive").optional(),
+  valuation: z.number().min(0, "Valuation must be positive").optional(),
   currency: z.enum(['USD', 'MXN', 'COP', 'BRL']).optional(),
   primaryContact: z.object({
     name: z.string().min(1, "Contact name is required"),
@@ -337,7 +330,13 @@ export const insertStartupSchema = createInsertSchema(startups, {
     "First contact date must be a valid ISO date"
   ).optional(),
   fundId: z.string().optional(),
-  // description: z.string().optional(), // ❌ COMENTADO
+  investmentDate: z.string().refine(
+    (date) => !isNaN(Date.parse(date)), 
+    "Investment date must be a valid ISO date"
+  ).optional(),
+  investmentAmount: z.number().min(0, "Investment amount must be positive").optional(),
+  ownershipPercentage: z.number().min(0).max(100, "Ownership must be between 0-100%").optional(),
+  decisionReason: z.string().optional()
 });
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -360,7 +359,7 @@ export const insertDocumentSchema = createInsertSchema(documents, {
   fundId: z.string().optional()
 });
 
-// Schema de validación para Investment Thesis
+// Schema de validación para Investment Thesis - SIN CAMBIOS
 export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis, {
   name: z.string().min(1, "Name is required"),
   preferredVerticals: z.array(z.object({
@@ -434,7 +433,7 @@ export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis,
   path: ["ticketSizeMax"]
 });
 
-// Resto de esquemas
+// Resto de esquemas - SIN CAMBIOS
 export const alignmentSchema = z.object({
   score: z.number().min(0).max(1),
   breakdown: z.record(z.string(), z.object({

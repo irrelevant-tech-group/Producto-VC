@@ -10,7 +10,7 @@ import { MemoRepository } from './repositories/memoRepository';
 import { ActivityRepository } from './repositories/activityRepository';
 import { DashboardRepository } from './repositories/dashboardRepository';
 import { AiRepository } from './repositories/aiRepository';
-import { InvestmentThesisRepository } from './repositories/investmentThesisRepository'; // ✅ Añadir import
+import { InvestmentThesisRepository } from './repositories/investmentThesisRepository';
 
 export * from './interfaces';
 export * from './types';
@@ -28,7 +28,7 @@ class DatabaseStorage implements IStorage {
   private activityRepository: ActivityRepository;
   private dashboardRepository: DashboardRepository;
   private aiRepository: AiRepository;
-  private investmentThesisRepository: InvestmentThesisRepository; // ✅ Añadir propiedad
+  private investmentThesisRepository: InvestmentThesisRepository;
   
   constructor() {
     // Iniciar repositorios con sus dependencias
@@ -41,7 +41,7 @@ class DatabaseStorage implements IStorage {
     this.memoRepository = new MemoRepository();
     this.activityRepository = new ActivityRepository();
     this.aiRepository = new AiRepository();
-    this.investmentThesisRepository = new InvestmentThesisRepository(); // ✅ Inicializar
+    this.investmentThesisRepository = new InvestmentThesisRepository();
   }
   
   // User operations
@@ -61,12 +61,13 @@ class DatabaseStorage implements IStorage {
   getStartupsByFund = (fundId: string) => this.fundRepository.getStartupsByFund(fundId);
   getFunds = () => this.fundRepository.getFunds();
   
-  // Startup operations
+  // Startup operations - ACTUALIZADO
   getStartup = (id: string) => this.startupRepository.getStartup(id);
   getStartups = () => this.startupRepository.getStartups();
   createStartup = (startup: any) => this.startupRepository.createStartup(startup);
   updateStartup = (id: string, data: any) => this.startupRepository.updateStartup(id, data);
   getStartupSummaries = (fundId?: string) => this.startupRepository.getStartupSummaries(fundId);
+  getInvestmentStats = (fundId?: string) => this.startupRepository.getInvestmentStats(fundId);
   
   // Document operations
   getDocument = (id: string) => this.documentRepository.getDocument(id);
@@ -104,7 +105,7 @@ class DatabaseStorage implements IStorage {
   getPopularQuestions = (limit?: number, fundId?: string) => 
     this.aiRepository.getPopularQuestions(limit, fundId);
 
-  // ✅ Investment Thesis operations - AÑADIR ESTOS MÉTODOS
+  // Investment Thesis operations
   getActiveThesis = (fundId: string) => this.investmentThesisRepository.getActiveThesis(fundId);
   getThesisById = (id: string) => this.investmentThesisRepository.getThesisById(id);
   getThesisHistory = (fundId: string) => this.investmentThesisRepository.getThesisHistory(fundId);
