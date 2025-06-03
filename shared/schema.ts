@@ -182,6 +182,19 @@ export const activities = pgTable("activities", {
   fundId: text("fund_id").references(() => funds.id),
 });
 
+// Tabla para plantillas de Due Diligence
+export const dueDiligenceTemplates = pgTable("due_diligence_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fundId: text("fund_id").notNull().references(() => funds.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").default(true),
+  categories: jsonb("categories").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
 // Investment Thesis Table - SIN CAMBIOS
 export const investmentThesis = pgTable("investment_thesis", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -280,6 +293,12 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   fund: one(funds, { fields: [activities.fundId], references: [funds.id] }),
 }));
 
+export const dueDiligenceTemplatesRelations = relations(dueDiligenceTemplates, ({ one }) => ({
+  fund: one(funds, { fields: [dueDiligenceTemplates.fundId], references: [funds.id] }),
+  createdByUser: one(users, { fields: [dueDiligenceTemplates.createdBy], references: [users.id] }),
+  updatedByUser: one(users, { fields: [dueDiligenceTemplates.updatedBy], references: [users.id] }),
+}));
+
 // Relaciones para Investment Thesis - SIN CAMBIOS
 export const investmentThesisRelations = relations(investmentThesis, ({ one }) => ({
   fund: one(funds, { fields: [investmentThesis.fundId], references: [funds.id] }),
@@ -310,6 +329,8 @@ export type Memo = typeof memos.$inferSelect;
 export type InsertMemo = typeof memos.$inferInsert;
 export type Activity = typeof activities.$inferSelect;
 export type InsertActivity = typeof activities.$inferInsert;
+export type DueDiligenceTemplate = typeof dueDiligenceTemplates.$inferSelect;
+export type InsertDueDiligenceTemplate = typeof dueDiligenceTemplates.$inferInsert;
 
 // Tipos para Investment Thesis
 export type InvestmentThesis = typeof investmentThesis.$inferSelect;

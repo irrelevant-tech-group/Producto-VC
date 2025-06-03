@@ -5,8 +5,14 @@ import { db } from "../../db";
 import { startups, documents, memos } from "@shared/schema";
 import { DashboardMetrics, DueDiligenceProgress } from "@shared/types";
 import { IDashboardRepository } from "../interfaces";
+import { DueDiligenceRepository } from './dueDiligenceRepository';
 
 export class DashboardRepository implements IDashboardRepository {
+  private dueDiligenceRepository: DueDiligenceRepository;
+
+  constructor() {
+    this.dueDiligenceRepository = new DueDiligenceRepository();
+  }
   async getDashboardMetrics(fundId?: string): Promise<DashboardMetrics> {
     try {
       // Base de las consultas
@@ -69,42 +75,34 @@ export class DashboardRepository implements IDashboardRepository {
         .select()
         .from(documents)
         .where(eq(documents.startupId, startupId));
-        
+
       const docs = docsQuery || [];
-      
-      // Lista configurable de items requeridos por categoría
-      const dueDiligenceCategories = {
-        'pitch-deck': { 
-          required: 1, 
-          importance: 'high',
-          description: 'Company presentation and vision'
-        },
-        'financials': { 
-          required: 3, 
-          importance: 'high',
-          description: 'Financial statements, projections, unit economics'
-        },
-        'legal': { 
-          required: 4, 
-          importance: 'medium',
-          description: 'Corporate structure, IP, contracts, compliance'
-        },
-        'tech': { 
-          required: 2, 
-          importance: 'high',
-          description: 'Technical documentation, architecture, security'
-        },
-        'market': { 
-          required: 2, 
-          importance: 'medium',
-          description: 'Market research, competitive analysis'
-        },
-        'other': { 
-          required: 0, 
-          importance: 'low',
-          description: 'Additional supporting documents'
-        }
-      };
+
+      // Obtener el startup para saber el fundId
+      const [startup] = await db
+        .select()
+        .from(startups)
+        .where(eq(startups.id, startupId));
+
+      if (!startup) {
+        throw new Error(`Startup ${startupId} not found`);
+      }
+
+      // Obtener template de due diligence activo para este fondo
+      const template = await this.dueDiligenceRepository.getActiveTemplate(startup.fundId || '');
+
+      if (!template) {
+        throw new Error(`No active due diligence template found for fund ${startup.fundId}`);
+      }
+
+      const dueDiligenceCategories = template.categories.reduce((acc, category) => {
+        acc[category.key] = {
+          required: category.required,
+          importance: category.importance,
+          description: category.description
+        };
+        return acc;
+      }, {} as Record<string, any>);
    
       // Contar documentos por categoría
       const categoriesStatus: any = {};
