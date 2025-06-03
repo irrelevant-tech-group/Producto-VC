@@ -16,11 +16,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="font-sans bg-secondary-50 text-secondary-900 min-h-screen flex overflow-hidden">
+    <div className="font-sans bg-secondary-50 text-secondary-900 h-screen flex overflow-hidden">
       {/* Sidebar - hidden on mobile by default, controlled by state */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header toggleSidebar={toggleSidebar} />
         
         {/* Main Content */}

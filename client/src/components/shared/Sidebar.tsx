@@ -186,8 +186,8 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       collapsed ? "w-16" : "w-64",
       mounted ? "transition-all" : "",
-      // CAMBIO PRINCIPAL: Usar min-h-screen en lugar de h-screen para permitir scroll
-      "min-h-screen h-full",
+      // CAMBIO PRINCIPAL: Usar h-full para que tome la altura del contenedor padre
+      "h-full",
       { "hidden": !isOpen && !mounted }
     )}>
       {/* Collapse Toggle Button (Desktop only) */}
@@ -288,40 +288,42 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       </div>
 
       {/* Navigation - CAMBIO PRINCIPAL: Añadir flex-1 y overflow-y-auto para permitir scroll */}
-      <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1 scrollbar-thin scrollbar-thumb-blue-700 scrollbar-track-transparent">
-        {/* Main Navigation */}
-        <div className={cn("mb-6", collapsed ? "text-center" : "")}>
-          {!collapsed && (
-            <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
-              Main
-            </p>
-          )}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1 scrollbar-thin scrollbar-thumb-blue-700 scrollbar-track-transparent">
+          {/* Main Navigation */}
+          <div className={cn("mb-6", collapsed ? "text-center" : "")}>
+            {!collapsed && (
+              <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
+                Main
+              </p>
+            )}
+            
+            {mainNavItems.map(renderNavItem)}
+          </div>
           
-          {mainNavItems.map(renderNavItem)}
-        </div>
-        
-        {/* Tools Section */}
-        <div className={cn("mt-6 mb-6", collapsed ? "text-center" : "")}>
-          {!collapsed && (
-            <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
-              Tools
-            </p>
-          )}
+          {/* Tools Section */}
+          <div className={cn("mt-6 mb-6", collapsed ? "text-center" : "")}>
+            {!collapsed && (
+              <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
+                Tools
+              </p>
+            )}
+            
+            {toolsNavItems.map(renderNavItem)}
+          </div>
           
-          {toolsNavItems.map(renderNavItem)}
-        </div>
-        
-        {/* Settings Section */}
-        <div className={cn("mt-6", collapsed ? "text-center" : "")}>
-          {!collapsed && (
-            <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
-              Settings
-            </p>
-          )}
-          
-          {renderNavItem({ path: '/settings', icon: Settings, label: 'Settings' })}
-        </div>
-      </nav>
+          {/* Settings Section */}
+          <div className={cn("mt-6", collapsed ? "text-center" : "")}>
+            {!collapsed && (
+              <p className="px-2 text-xs font-bold text-sky-300 uppercase tracking-wider mb-2">
+                Settings
+              </p>
+            )}
+            
+            {renderNavItem({ path: '/settings', icon: Settings, label: 'Settings' })}
+          </div>
+        </nav>
+      </div>
       
       {/* Sidebar Footer - CAMBIO: Añadir flex-shrink-0 para evitar que se comprima */}
       <div className={cn(
