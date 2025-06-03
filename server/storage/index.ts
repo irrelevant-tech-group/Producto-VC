@@ -10,6 +10,7 @@ import { MemoRepository } from './repositories/memoRepository';
 import { ActivityRepository } from './repositories/activityRepository';
 import { DashboardRepository } from './repositories/dashboardRepository';
 import { AiRepository } from './repositories/aiRepository';
+import { InvestmentThesisRepository } from './repositories/investmentThesisRepository'; // ✅ Añadir import
 
 export * from './interfaces';
 export * from './types';
@@ -27,6 +28,7 @@ class DatabaseStorage implements IStorage {
   private activityRepository: ActivityRepository;
   private dashboardRepository: DashboardRepository;
   private aiRepository: AiRepository;
+  private investmentThesisRepository: InvestmentThesisRepository; // ✅ Añadir propiedad
   
   constructor() {
     // Iniciar repositorios con sus dependencias
@@ -39,6 +41,7 @@ class DatabaseStorage implements IStorage {
     this.memoRepository = new MemoRepository();
     this.activityRepository = new ActivityRepository();
     this.aiRepository = new AiRepository();
+    this.investmentThesisRepository = new InvestmentThesisRepository(); // ✅ Inicializar
   }
   
   // User operations
@@ -100,6 +103,14 @@ class DatabaseStorage implements IStorage {
   getQueryHistory = (options: any) => this.aiRepository.getQueryHistory(options);
   getPopularQuestions = (limit?: number, fundId?: string) => 
     this.aiRepository.getPopularQuestions(limit, fundId);
+
+  // ✅ Investment Thesis operations - AÑADIR ESTOS MÉTODOS
+  getActiveThesis = (fundId: string) => this.investmentThesisRepository.getActiveThesis(fundId);
+  getThesisById = (id: string) => this.investmentThesisRepository.getThesisById(id);
+  getThesisHistory = (fundId: string) => this.investmentThesisRepository.getThesisHistory(fundId);
+  createThesis = (thesis: any) => this.investmentThesisRepository.createThesis(thesis);
+  updateThesis = (id: string, data: any) => this.investmentThesisRepository.updateThesis(id, data);
+  activateThesis = (id: string, fundId: string) => this.investmentThesisRepository.activateThesis(id, fundId);
 }
 
 // Exportar una instancia única

@@ -16,6 +16,7 @@ import MemosList from './pages/memos/index';
 import MemoDetail from './pages/memos/[id]';
 import AiAssistant from './pages/ai-assistant/index';
 import NotFound from './pages/not-found';
+import SettingsPage from './pages/settings/index';
 
 // Auth Pages
 import SignInPage from './components/auth/SignInPage';
@@ -169,6 +170,17 @@ function App() {
                 <RedirectToSignIn />
               </SignedOut>
             </Route>
+
+            <Route path="/settings">
+  <SignedIn>
+    <MainLayout>
+      <SettingsPage />
+    </MainLayout>
+  </SignedIn>
+  <SignedOut>
+    <RedirectToSignIn />
+  </SignedOut>
+</Route>
             
             {/* 404 route */}
             <Route>

@@ -33,7 +33,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(`${apiRouter}/memos`, memosRouter);
   app.use(`${apiRouter}/funds`, fundsRouter);
   app.use(`${apiRouter}/users`, usersRouter);
-  app.use(`${apiRouter}/investment-thesis`, investmentThesisRouter);
+  app.use(`${apiRouter}/investment-thesis`, investmentThesisRouter); // ✅ Ruta ya registrada
 
   // Global error handler
   app.use(errorHandler);

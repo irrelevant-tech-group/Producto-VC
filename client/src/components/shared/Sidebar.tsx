@@ -181,11 +181,13 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
 
   return (
     <aside className={cn(
-      "flex flex-col h-screen bg-gradient-to-b from-blue-800 via-blue-900 to-indigo-900 border-r border-blue-700/50 z-20 shadow-xl",
+      "flex flex-col bg-gradient-to-b from-blue-800 via-blue-900 to-indigo-900 border-r border-blue-700/50 z-20 shadow-xl",
       "fixed md:relative inset-y-0 left-0 transform transition-all duration-300 ease-in-out",
       isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       collapsed ? "w-16" : "w-64",
       mounted ? "transition-all" : "",
+      // CAMBIO PRINCIPAL: Usar min-h-screen en lugar de h-screen para permitir scroll
+      "min-h-screen h-full",
       { "hidden": !isOpen && !mounted }
     )}>
       {/* Collapse Toggle Button (Desktop only) */}
@@ -204,7 +206,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       )}
 
       {/* Sidebar Header - Nombre e imagen de la organización */}
-      <div className="p-4 border-b border-blue-700/40 flex items-center justify-between bg-blue-900/50">
+      <div className="p-4 border-b border-blue-700/40 flex items-center justify-between bg-blue-900/50 flex-shrink-0">
         <div className="flex items-center">
           <div className="flex-shrink-0">
             {orgImageUrl ? (
@@ -235,7 +237,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
 
       {/* User Profile - Imagen de perfil e información del usuario */}
       <div className={cn(
-        "px-4 py-4 border-b border-blue-700/40 mb-3",
+        "px-4 py-4 border-b border-blue-700/40 mb-3 flex-shrink-0",
         collapsed ? "flex justify-center" : ""
       )}>
         {collapsed ? (
@@ -285,7 +287,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         )}
       </div>
 
-      {/* Navigation */}
+      {/* Navigation - CAMBIO PRINCIPAL: Añadir flex-1 y overflow-y-auto para permitir scroll */}
       <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1 scrollbar-thin scrollbar-thumb-blue-700 scrollbar-track-transparent">
         {/* Main Navigation */}
         <div className={cn("mb-6", collapsed ? "text-center" : "")}>
@@ -321,15 +323,15 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         </div>
       </nav>
       
-      {/* Sidebar Footer */}
+      {/* Sidebar Footer - CAMBIO: Añadir flex-shrink-0 para evitar que se comprima */}
       <div className={cn(
-        "p-4 mt-auto border-t border-blue-700/40",
+        "p-4 mt-auto border-t border-blue-700/40 flex-shrink-0",
         collapsed ? "flex justify-center" : ""
       )}>
         {collapsed ? (
           <div 
             className="p-2 rounded-full hover:bg-white/10 cursor-pointer"
-            onClick={handleSignOut} // Añadida función de cierre de sesión
+            onClick={handleSignOut}
           >
             <LogOut className="h-5 w-5 text-blue-200 hover:text-white" />
           </div>
@@ -358,7 +360,7 @@ const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
               variant="ghost" 
               size="sm" 
               className="w-full text-sm text-blue-200 hover:text-white hover:bg-blue-700/50 flex items-center justify-center transition-colors"
-              onClick={handleSignOut} // Cambiado de onClick={() => logout()} a usar la función de manejador
+              onClick={handleSignOut}
             >
               <LogOut className="h-4 w-4 mr-2" />
               Sign out

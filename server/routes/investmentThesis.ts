@@ -6,6 +6,7 @@ import { investmentThesisService } from "../services/investmentThesis/thesisServ
 import { InvestmentThesisRepository } from "../storage/repositories/investmentThesisRepository";
 import { validateBody } from "./middlewares";
 import { insertInvestmentThesisSchema } from "@shared/schema";
+import { storage } from "../storage"; // ✅ Añadir import correcto
 
 const router = Router();
 const thesisRepository = new InvestmentThesisRepository();
@@ -157,6 +158,56 @@ router.get("/active", requireAuth, loadUserFromDb, async (req: Request, res: Res
       res.json(activatedThesis);
     } catch (error: any) {
       console.error("Error activating thesis:", error);
+      res.status(500).json({ message: error.message });
+    }
+   });
+
+   // ✅ AÑADIR ENDPOINT PARA ELIMINAR TESIS
+   router.delete("/:id", requireAuth, loadUserFromDb, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const thesisId = req.params.id;
+      
+      // Verificar que la tesis pertenece al fondo del usuario
+      const existingThesis = await thesisRepository.getThesisById(thesisId);
+      if (!existingThesis) {
+        return res.status(404).json({ message: "Investment thesis not found" });
+      }
+      
+      if (existingThesis.fundId !== req.user?.fundId) {
+        return res.status(403).json({ message: "No access to this investment thesis" });
+      }
+
+      // No permitir eliminar la tesis activa si es la única
+      if (existingThesis.isActive) {
+        const allTheses = await thesisRepository.getThesisHistory(req.user.fundId);
+        if (allTheses.length === 1) {
+          return res.status(400).json({ 
+            message: "Cannot delete the only active thesis. Create a new one first." 
+          });
+        }
+      }
+
+      // En lugar de eliminar físicamente, marcar como inactiva
+      await thesisRepository.updateThesis(thesisId, { 
+        isActive: false,
+        updatedBy: req.user.id 
+      });
+
+      // Registrar actividad
+      await storage.createActivity({
+        type: 'thesis_deleted',
+        userId: req.user.id,
+        content: `Tesis de inversión eliminada: ${existingThesis.name}`,
+        metadata: {
+          thesisId: thesisId,
+          version: existingThesis.version
+        },
+        fundId: req.user.fundId
+      });
+
+      res.json({ message: "Investment thesis deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting thesis:", error);
       res.status(500).json({ message: error.message });
     }
    });
