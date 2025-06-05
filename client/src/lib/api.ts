@@ -60,6 +60,11 @@ export const createStartup = async (data: any) => {
     filteredData.amountSought = Number(data.amountSought);
   }
 
+  // Only include valuation if it exists and is a number
+  if (data.valuation !== undefined && data.valuation !== null && !isNaN(Number(data.valuation))) {
+    filteredData.valuation = Number(data.valuation);
+  }
+
   // Only include description if it exists and isn't empty
   if (data.description) {
     filteredData.description = data.description;
@@ -152,4 +157,72 @@ export const regenerateStartupAlignment = async (id: string) => {
   const res = await apiRequest('POST', `/api/startups/${id}/regenerate-alignment`);
   if (!res.ok) throw new Error('Failed to regenerate startup alignment');
   return res.json();
+};
+
+
+// Investment Thesis API
+export const fetchActiveThesis = async () => {
+  const res = await fetch('/api/investment-thesis/active');
+  if (!res.ok) throw new Error('Failed to fetch active thesis');
+  return res.json();
+};
+
+export const fetchThesisHistory = async () => {
+  const res = await fetch('/api/investment-thesis/history');
+  if (!res.ok) throw new Error('Failed to fetch thesis history');
+  return res.json();
+};
+
+export const createThesis = async (data: any) => {
+  const response = await apiRequest('POST', '/api/investment-thesis', data);
+  return response.json();
+};
+
+export const updateThesis = async (id: string, data: any) => {
+  const response = await apiRequest('PATCH', `/api/investment-thesis/${id}`, data);
+  return response.json();
+};
+
+export const activateThesis = async (id: string) => {
+  const response = await apiRequest('POST', `/api/investment-thesis/${id}/activate`, {});
+  return response.json();
+};
+
+export const deleteThesis = async (id: string) => {
+  const response = await apiRequest('DELETE', `/api/investment-thesis/${id}`, {});
+  return response.json();
+};
+
+export const previewThesisContext = async (id: string) => {
+  const res = await fetch(`/api/investment-thesis/${id}/context-preview`);
+  if (!res.ok) throw new Error('Failed to fetch thesis context preview');
+  return res.json();
+};
+
+
+// Investment Decision API
+export const markStartupAsInvested = async (id: string, data: InvestmentDecision) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-invested`, data);
+  return response.json();
+};
+
+export const markStartupAsDeclined = async (id: string, data: DecisionReason) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-declined`, data);
+  return response.json();
+};
+
+export const markStartupAsStandby = async (id: string, data: DecisionReason) => {
+  const response = await apiRequest('POST', `/api/startups/${id}/mark-standby`, data);
+  return response.json();
+};
+
+// Memo Approval API
+export const approveMemo = async (id: string, data: MemoApproval) => {
+  const response = await apiRequest('POST', `/api/memos/${id}/approve`, data);
+  return response.json();
+};
+
+export const rejectMemo = async (id: string, data: MemoRejection) => {
+  const response = await apiRequest('POST', `/api/memos/${id}/reject`, data);
+  return response.json();
 };

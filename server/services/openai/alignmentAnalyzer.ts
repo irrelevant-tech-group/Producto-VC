@@ -76,6 +76,8 @@ function calculateDataCompleteness(documents: any[]): number {
  * cuando el análisis principal falla
  */
 function generateFallbackAlignmentScore(startup: any, documents: any[], chunks: any[]): any {
+  console.log("🔄 Usando sistema de fallback para alignment score");
+  
   // Implementación mejorada del fallback con más factores
   const preferredVerticals = ["fintech", "saas", "ai", "marketplace"];
   const verticalScore = preferredVerticals.includes(startup.vertical.toLowerCase()) ? 0.20 : 0.05;
@@ -127,20 +129,62 @@ function generateFallbackAlignmentScore(startup: any, documents: any[], chunks: 
   
   // Calcular score final
   let alignmentScore = verticalScore + stageScore + docsScore + keywordsScore;
-  alignmentScore = Math.min(Math.max(alignmentScore, 0), 1);
+  alignmentScore = Math.min(Math.max(alignmentScore, 0.1), 0.9); // Entre 10% y 90%
+  
+  console.log(`📊 Fallback scores - Vertical: ${verticalScore}, Stage: ${stageScore}, Docs: ${docsScore}, Keywords: ${keywordsScore}, Final: ${alignmentScore}`);
   
   // Actualizar la base de datos con el score generado
   storage.updateStartup(startup.id, { 
     alignmentScore,
     lastAnalyzedAt: new Date().toISOString(),
-    analysisMetadata: {
-      fallbackMode: true,
-      verticalScore: verticalScore,
-      stageScore: stageScore,
-      documentationScore: docsScore,
-      keywordScore: keywordsScore,
-      documentCount: documents.length,
-      lastUpdated: new Date().toISOString()
+    metadata: {
+      ...startup.metadata,
+      alignmentAnalysis: {
+        fallbackMode: true,
+        verticalScore: verticalScore,
+        stageScore: stageScore,
+        documentationScore: docsScore,
+        keywordScore: keywordsScore,
+        documentCount: documents.length,
+        lastUpdated: new Date().toISOString(),
+        summary: "Análisis generado mediante método alternativo debido a limitaciones de datos.",
+        criteriaScores: {
+          vertical: { score: verticalScore * 100, justification: preferredVerticals.includes(startup.vertical.toLowerCase()) ? 
+            `El vertical ${startup.vertical} está alineado con la tesis de inversión` : 
+            `El vertical ${startup.vertical} no es uno de los focos principales (${preferredVerticals.join(', ')})` },
+          stage: { score: stageScore * 100, justification: stageScores[startup.stage.toLowerCase()] >= 0.15 ? 
+            `La etapa ${startup.stage} está bien alineada con la tesis de inversión` :
+            `La etapa ${startup.stage} no es ideal para nuestro perfil de inversión` },
+          documentation: { score: docsScore * 100, justification: `Se han subido ${documents.length} documentos para análisis` },
+          contentQuality: { score: keywordsScore * 100, justification: "Análisis basado en palabras clave relevantes" }
+        },
+        strengths: [
+          preferredVerticals.includes(startup.vertical.toLowerCase()) ? 
+            `El vertical ${startup.vertical} está alineado con la tesis de inversión` : 
+            "Startup con documentación disponible para análisis",
+          startup.stage.toLowerCase() in ["pre-seed", "seed"] ?
+            `La etapa ${startup.stage} está alineada con la tesis de inversión` :
+            "Startup con potencial de crecimiento"
+        ],
+        weaknesses: [
+          documents.length < 5 ? "Documentación limitada para análisis completo" : 
+            "Análisis generado mediante método alternativo",
+          !preferredVerticals.includes(startup.vertical.toLowerCase()) ?
+            `El vertical ${startup.vertical} no es foco principal de la tesis de inversión` :
+            "Se requiere análisis más profundo"
+        ],
+        recommendations: [
+          "Subir documentación adicional para un análisis más preciso",
+          "Solicitar análisis manual por parte del equipo de inversión",
+          "Complementar con métricas de tracción específicas"
+        ],
+        riskFactors: [
+          documents.length < 3 ? "Información insuficiente para evaluación completa" :
+            "Potencial falta de información crítica",
+          "El análisis automático puede no capturar matices importantes",
+          "Considerar revisar manualmente este startup"
+        ]
+      }
     }
   }).catch(err => console.error("Error al actualizar startup con fallback score:", err));
   
@@ -218,20 +262,40 @@ export async function analyzeStartupAlignment(
 export async function enhancedStartupAlignment(
   startupId: string
 ): Promise<any> {
+  console.log(`🚀 Iniciando análisis de alineamiento para startup: ${startupId}`);
+  
   try {
     const startup = await storage.getStartup(startupId);
     if (!startup) {
       throw new Error("Startup not found");
     }
     
+    console.log(`📋 Startup encontrado: ${startup.name} (${startup.vertical}, ${startup.stage})`);
+    
     // Obtener TODOS los datos disponibles para un análisis más completo
     const documents = await storage.getDocumentsByStartup(startupId);
     const allChunks = await storage.searchChunks("", startupId, 80); // Aumentado de 50 a 80 chunks
+    
+    console.log(`📄 Documentos: ${documents.length}, Chunks: ${allChunks.length}`);
+    
+    // Si no hay documentos ni chunks, usar fallback inmediatamente
+    if (documents.length === 0 && allChunks.length === 0) {
+      console.log("⚠️ Sin documentos ni chunks disponibles, usando fallback");
+      return generateFallbackAlignmentScore(startup, documents, allChunks);
+    }
+    
+    // Verificar que tenemos API key de OpenAI
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("❌ OPENAI_API_KEY no configurada");
+      throw new Error("OpenAI API key not configured");
+    }
     
     // Obtener actividades y memos para enriquecer contexto 
     const activities = await storage.getRecentActivities(20, startup.fundId);
     const startupActivities = activities.filter(a => a.startupId === startupId);
     const memos = await storage.getMemosByStartup(startupId);
+    
+    console.log(`📊 Actividades: ${startupActivities.length}, Memos: ${memos.length}`);
     
     // Sistema de pesos y criterios refinados con subcategorías
     const criteriaStructure = {
@@ -286,7 +350,13 @@ export async function enhancedStartupAlignment(
     };
     
     // Extraer entidades clave para enriquecer el análisis
-    const entitySummary = await extractKeyEntitiesFromChunks(allChunks);
+    let entitySummary = null;
+    try {
+      entitySummary = await extractKeyEntitiesFromChunks(allChunks);
+      console.log("🔍 Entidades extraídas:", Object.keys(entitySummary || {}).length);
+    } catch (entityError) {
+      console.warn("⚠️ Error extrayendo entidades:", entityError.message);
+    }
     
     // Contexto específico del fondo (se podría personalizar por fondo)
     const fund = startup.fundId ? await storage.getFund(startup.fundId) : null;
@@ -312,6 +382,8 @@ export async function enhancedStartupAlignment(
       modelo de negocio escalable, y métricas de tracción iniciales prometedoras.
     `;
     
+    console.log("🤖 Enviando análisis a OpenAI...");
+    
     // Análisis IA mejorado con modelo más potente y prompt refinado
     try {
       const response = await openai.chat.completions.create({
@@ -320,65 +392,75 @@ export async function enhancedStartupAlignment(
           {
             role: "system",
             content: `
-            Eres un socio senior de venture capital especializado en evaluar startups para inversión.
-            Tu tarea es evaluar minuciosamente una startup en relación con la tesis de inversión del fondo,
-            proporcionando un análisis detallado, riguroso y basado en hechos.
+            Eres un analista de venture capital. Evalúa startups y responde ÚNICAMENTE con JSON válido.
             
-            Debes evaluar los siguientes criterios y sus subcategorías, asignando una puntuación (0-100) a cada una:
-            1. MERCADO: tamaño, crecimiento potencial, tendencias
-            2. PRODUCTO: innovación, defensibilidad, escalabilidad
-            3. EQUIPO: experiencia, expertise en el dominio, completitud
-            4. TRACCIÓN: métricas de crecimiento, validación de clientes, calidad de ingresos
-            5. MODELO DE NEGOCIO: unit economics, márgenes, repetibilidad
-            6. FIT CON EL FONDO: alineación de etapa, vertical y geografía
+            FORMATO REQUERIDO (copia exactamente esta estructura):
+            {
+              "alignmentScore": 75,
+              "summary": "Descripción del análisis en 2-3 oraciones",
+              "criteriaScores": {
+                "market": {"score": 80, "justification": "Explicación del mercado"},
+                "product": {"score": 70, "justification": "Explicación del producto"},
+                "team": {"score": 85, "justification": "Explicación del equipo"},
+                "traction": {"score": 60, "justification": "Explicación de tracción"},
+                "businessModel": {"score": 75, "justification": "Explicación del modelo de negocio"},
+                "fundFit": {"score": 90, "justification": "Explicación del fit con el fondo"}
+              },
+              "strengths": ["Fortaleza 1", "Fortaleza 2", "Fortaleza 3"],
+              "weaknesses": ["Debilidad 1", "Debilidad 2"],
+              "recommendations": ["Recomendación 1", "Recomendación 2"],
+              "riskFactors": ["Riesgo 1", "Riesgo 2"]
+            }
             
-            Para cada criterio, proporciona:
-            - Puntuación objetiva (0-100) para cada subcategoría
-            - Justificación detallada (3-5 oraciones) con hechos específicos del texto
-            - 2-3 fortalezas principales y 2-3 riesgos principales
-            - Recomendaciones específicas para mejorar este aspecto
-            
-            Tu análisis debe ser sumamente objetivo, reconociendo tanto las fortalezas como las debilidades.
-            Basado en tu análisis integral, calcula un Alignment Score final (0-100) que refleje la alineación
-            general con la tesis de inversión.
-            
-            MUY IMPORTANTE: Tu respuesta DEBE seguir un formato estructurado en JSON para integrarse en nuestro sistema.
-            No incluyas texto fuera del formato. Proporciona razones y justificaciones completas.
+            IMPORTANTE: 
+            - alignmentScore debe ser un número entre 0 y 100
+            - Todos los arrays deben tener al menos 1 elemento
+            - Todos los scores en criteriaScores deben ser números entre 0 y 100
+            - Solo responde con JSON, sin texto adicional
             `
           },
           {
             role: "user",
             content: `
-            # CONTEXTO DEL FONDO
-            ${fundContext}
+            Analiza este startup para H20 Capital:
             
-            # TESIS DE INVERSIÓN
-            ${investmentThesis}
+            STARTUP: ${startup.name}
+            VERTICAL: ${startup.vertical}
+            ETAPA: ${startup.stage}
+            UBICACIÓN: ${startup.location}
+            MONTO: ${startup.amountSought ? `${startup.amountSought} ${startup.currency}` : "No especificado"}
             
-            # DATOS DEL STARTUP
-            Nombre: ${startup.name}
-            Vertical: ${startup.vertical}
-            Etapa: ${startup.stage}
-            Ubicación: ${startup.location}
-            Monto buscado: ${startup.amountSought ? `${startup.amountSought} ${startup.currency}` : "No especificado"}
-            Documentos disponibles: ${documents.length} (${documents.map(d => d.type).join(', ')})
+            TESIS H20 CAPITAL:
+            - Sectores: Fintech, SaaS, AI, Marketplace
+            - Etapas: Pre-seed, Seed
+            - Región: América Latina
+            - Ticket: $100K-$500K
             
-            # ENTIDADES CLAVE DETECTADAS
-            ${JSON.stringify(entitySummary, null, 2)}
+            DOCUMENTOS DISPONIBLES: ${documents.length}
+            TIPOS: ${documents.map(d => d.type).join(', ') || 'ninguno'}
             
-            # INFORMACIÓN DEL STARTUP (EXTRACTOS DE DOCUMENTOS)
-            ${contextSample}
+            ${contextSample ? `CONTENIDO:\n${contextSample.slice(0, 5000)}` : 'Sin contenido de documentos disponible'}
             
-            Realiza un análisis exhaustivo y objetivo para determinar el Alignment Score de este startup con nuestra tesis de inversión.
+            Evalúa el alineamiento con la tesis de H20 Capital y responde con el JSON requerido.
             `
           }
         ],
         temperature: 0.1,
+        max_tokens: 2000,
         response_format: { type: "json_object" }
       });
       
+      console.log("✅ Respuesta recibida de OpenAI");
+      
+      // DEBUGGING TEMPORAL - Añadir justo después de JSON.parse
+      console.log("🔍 DEBUG - Respuesta RAW de OpenAI:");
+      console.log(response.choices[0].message.content);
+      
       // Procesar respuesta
       const analysisResult = JSON.parse(response.choices[0].message.content || "{}");
+      
+      console.log("🔍 DEBUG - analysisResult parseado:");
+      console.log(JSON.stringify(analysisResult, null, 2));
       
       // Verificar estructura mínima necesaria o aplicar valores por defecto
       if (!analysisResult.alignmentScore) {
@@ -388,6 +470,8 @@ export async function enhancedStartupAlignment(
       if (!analysisResult.summary) {
         analysisResult.summary = "Análisis de alineamiento con la tesis de inversión.";
       }
+      
+      console.log(`📊 Score calculado: ${Math.round(analysisResult.alignmentScore)}%`);
       
       // Estructura del resultado para la respuesta
       const result = {
@@ -406,24 +490,38 @@ export async function enhancedStartupAlignment(
           analyzedAt: new Date().toISOString(),
           dataPoints: allChunks.length,
           documentCount: documents.length,
-          dataCompleteness: calculateDataCompleteness(documents)
+          dataCompleteness: calculateDataCompleteness(documents),
+          usedOpenAI: true
         }
       };
+      
+      console.log("🔍 DEBUG - Resultado completo del análisis:");
+      console.log("📊 Alignment Score:", result.alignmentScore);
+      console.log("📝 Summary:", result.analysis?.summary?.substring(0, 100) + "...");
+      console.log("📈 Criteria Scores:", Object.keys(result.analysis?.criteriaScores || {}));
+      console.log("💪 Strengths:", result.analysis?.strengths?.length || 0);
+      console.log("⚠️ Weaknesses:", result.analysis?.weaknesses?.length || 0);
+      console.log("💡 Recommendations:", result.analysis?.recommendations?.length || 0);
+      console.log("🚨 Risk Factors:", result.analysis?.riskFactors?.length || 0);
       
       // Actualizar score en la base de datos con metadata extendida
       await storage.updateStartup(startupId, { 
         alignmentScore: result.alignmentScore,
         lastAnalyzedAt: new Date().toISOString(),
-        analysisMetadata: {
-          summary: analysisResult.summary,
-          criteriaScores: analysisResult.criteriaScores,
-          strengths: analysisResult.strengths,
-          weaknesses: analysisResult.weaknesses,
-          recommendations: analysisResult.recommendations,
-          riskFactors: analysisResult.riskFactors,
-          documentCount: documents.length,
-          dataCompleteness: result.metadata.dataCompleteness,
-          lastUpdated: new Date().toISOString()
+        metadata: {
+          ...startup.metadata,
+          alignmentAnalysis: {
+            summary: analysisResult.summary,
+            criteriaScores: analysisResult.criteriaScores,
+            strengths: analysisResult.strengths,
+            weaknesses: analysisResult.weaknesses,
+            recommendations: analysisResult.recommendations,
+            riskFactors: analysisResult.riskFactors,
+            documentCount: documents.length,
+            dataCompleteness: result.metadata.dataCompleteness,
+            lastUpdated: new Date().toISOString(),
+            usedOpenAI: true
+          }
         }
       });
       
@@ -440,14 +538,16 @@ export async function enhancedStartupAlignment(
         }
       });
       
+      console.log("✅ Análisis completado y guardado en base de datos");
+      
       return result;
     } catch (error) {
-      console.error("Error en análisis de alineamiento con IA:", error);
+      console.error("❌ Error en análisis de alineamiento con IA:", error);
       // Sistema de fallback mejorado
       return generateFallbackAlignmentScore(startup, documents, allChunks);
     }
   } catch (error) {
-    console.error("Error al analizar alineamiento del startup:", error);
+    console.error("❌ Error al analizar alineamiento del startup:", error);
     throw new Error("No se pudo analizar el alineamiento del startup con la tesis de inversión.");
   }
 }

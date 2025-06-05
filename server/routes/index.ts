@@ -13,6 +13,8 @@ import aiRouter from './ai';
 import memosRouter from './memos';
 import fundsRouter from './funds';
 import usersRouter from './users';
+import investmentThesisRouter from './investmentThesis';
+import dueDiligenceRouter from './dueDiligence';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API prefix
@@ -30,8 +32,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(`${apiRouter}/documents`, documentsRouter);
   app.use(`${apiRouter}/ai`, aiRouter);
   app.use(`${apiRouter}/memos`, memosRouter);
+  app.use(`${apiRouter}/due-diligence`, dueDiligenceRouter);
   app.use(`${apiRouter}/funds`, fundsRouter);
   app.use(`${apiRouter}/users`, usersRouter);
+  app.use(`${apiRouter}/investment-thesis`, investmentThesisRouter); // ✅ Ruta ya registrada
 
   // Global error handler
   app.use(errorHandler);

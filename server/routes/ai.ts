@@ -6,6 +6,7 @@ import { requireAuth, loadUserFromDb } from "../middleware/auth";
 import { validateBody, isValidUUID } from "./middlewares";
 import { aiQuerySchema } from "./validators";
 import { processQuery } from "../services/openai";
+import { processQueryWithThesis } from "../services/openai/enhancedQueryProcessor";
 
 const router = Router();
 
@@ -46,11 +47,11 @@ router.post("/query", requireAuth, loadUserFromDb, async (req: Request, res: Res
     
     // Procesar consulta con OpenAI
     const startTime = Date.now();
-    const response = await processQuery({ 
+    const response = await processQueryWithThesis({ 
       startupId: validStartupId, 
       question, 
       includeSourceDocuments 
-    });
+    }, req.user?.fundId);
     const processingTime = Date.now() - startTime;
     
     // Persistir consulta en base de datos

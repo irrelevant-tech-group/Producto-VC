@@ -7,11 +7,12 @@ import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: ReactNode;
+  requiredRole?: string;
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { isLoaded, isSignedIn } = useUser();
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, user } = useAuth();
   const [, setLocation] = useLocation();
 
   // Función para redirigir al inicio de sesión
@@ -56,6 +57,17 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
           >
             Sign in again
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (requiredRole && user?.role !== requiredRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">Access Denied</h1>
+          <p className="text-slate-600">You do not have permission to view this page.</p>
         </div>
       </div>
     );

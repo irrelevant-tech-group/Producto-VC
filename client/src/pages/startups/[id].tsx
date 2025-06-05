@@ -1,16 +1,19 @@
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { fetchStartup, fetchDueDiligenceProgress, fetchStartupDocuments, fetchStartupMemos, generateMemo, regenerateStartupAlignment } from "@/lib/api";
+import { fetchStartup, fetchDueDiligenceProgress, fetchStartupDocuments, fetchStartupMemos, generateMemo, regenerateStartupAlignment, markStartupAsInvested, markStartupAsDeclined, markStartupAsStandby } from "@/lib/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import DueDiligenceProgressComponent, { DueDiligenceProgress as DDProgressType } from "@/components/DueDiligenceProgress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { InvestmentDecisionModal } from "@/components/modals/InvestmentDecisionModal";
+import { useState } from "react";
 import {
   ArrowLeft,
   Building2,
@@ -36,7 +39,10 @@ import {
   User,
   Contact,
   RefreshCcw,
-  Loader2
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Pause
 } from "lucide-react";
 
 export default function StartupDetail() {
@@ -44,6 +50,12 @@ export default function StartupDetail() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Modal states
+  const [decisionModal, setDecisionModal] = useState<{
+    isOpen: boolean;
+    type: 'invested' | 'declined' | 'standby' | null;
+  }>({ isOpen: false, type: null });
 
   // Fetch startup details
   const {
@@ -125,6 +137,83 @@ export default function StartupDetail() {
     },
   });
 
+  // Investment decision mutations
+  const investedMutation = useMutation({
+    mutationFn: (data: any) => markStartupAsInvested(id as string, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/startups', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/startups'] });
+      setDecisionModal({ isOpen: false, type: null });
+      toast({
+        title: "Success",
+        description: "Startup marked as invested successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to mark as invested: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const declinedMutation = useMutation({
+    mutationFn: (data: any) => markStartupAsDeclined(id as string, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/startups', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/startups'] });
+      setDecisionModal({ isOpen: false, type: null });
+      toast({
+        title: "Success",
+        description: "Startup marked as declined successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to mark as declined: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const standbyMutation = useMutation({
+    mutationFn: (data: any) => markStartupAsStandby(id as string, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/startups', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/startups'] });
+      setDecisionModal({ isOpen: false, type: null });
+      toast({
+        title: "Success",
+        description: "Startup moved to standby successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to move to standby: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDecisionSubmit = (data: any) => {
+    switch (decisionModal.type) {
+      case 'invested':
+        investedMutation.mutate(data);
+        break;
+      case 'declined':
+        declinedMutation.mutate(data);
+        break;
+      case 'standby':
+        standbyMutation.mutate(data);
+        break;
+    }
+  };
+
+  const isDecisionLoading = investedMutation.isPending || declinedMutation.isPending || standbyMutation.isPending;
+
   // Handle memo generation
   const handleGenerateMemo = () => {
     generateMemoMutation.mutate();
@@ -160,6 +249,7 @@ export default function StartupDetail() {
     const variants: Record<string, string> = {
       active: "primary",
       invested: "success",
+      standby: "warning",
       declined: "destructive",
       archived: "secondary",
     };
@@ -454,6 +544,51 @@ export default function StartupDetail() {
         </Card>
       </div>
 
+      {/* Investment Decision Buttons - Solo mostrar si el startup está activo */}
+      {!isLoadingStartup && startup && startup.status === 'active' && (
+        <Card className="mb-8 border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
+            <CardTitle className="text-lg font-medium flex items-center">
+              <Sparkles className="h-5 w-5 mr-2 text-primary-500" />
+              Investment Decision
+            </CardTitle>
+            <CardDescription>Make a final decision on this startup investment</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Button
+                onClick={() => setDecisionModal({ isOpen: true, type: 'invested' })}
+                className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+                disabled={isDecisionLoading}
+              >
+                <CheckCircle className="h-4 w-4" />
+                Mark as Invested
+              </Button>
+              
+              <Button
+                onClick={() => setDecisionModal({ isOpen: true, type: 'declined' })}
+                variant="outline"
+                className="flex items-center justify-center gap-2 border-red-200 text-red-700 hover:bg-red-50"
+                disabled={isDecisionLoading}
+              >
+                <XCircle className="h-4 w-4" />
+                Mark as Declined
+              </Button>
+              
+              <Button
+                onClick={() => setDecisionModal({ isOpen: true, type: 'standby' })}
+                variant="outline"
+                className="flex items-center justify-center gap-2 border-amber-200 text-amber-700 hover:bg-amber-50"
+                disabled={isDecisionLoading}
+              >
+                <Pause className="h-4 w-4" />
+                Move to Standby
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabs for Different Sections */}
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList className="bg-white border border-slate-200 p-1 shadow-sm rounded-lg">
@@ -508,639 +643,587 @@ export default function StartupDetail() {
                   <Skeleton className="h-16 w-full" />
                 </div>
               ) : (
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <Label className="text-base font-medium">Overall Progress</Label>
-                      <span className="text-sm font-medium">{dueDiligence?.percentage || 0}%</span>
-                    </div>
-                    <Progress 
-                      value={dueDiligence?.percentage || 0} 
-                      className="h-2.5"
-                      color={dueDiligence?.percentage >= 75 ? "bg-green-500" :
-                             dueDiligence?.percentage >= 40 ? "bg-amber-500" :
-                             "bg-blue-500"}
-                    />
-                    <div className="flex justify-between text-xs text-slate-500">
-                      <span>{dueDiligence?.completedItems || 0} of {dueDiligence?.totalItems || 0} items completed</span>
-                      <span>Last updated: {dueDiligence ? formatDate(dueDiligence.lastUpdated) : "—"}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {dueDiligence && dueDiligence.categories && Object.entries(dueDiligence.categories).map(([key, category]) => (
-                      <div key={key} className="space-y-2 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <Label className="capitalize flex items-center">
-                              {getCategoryIcon(key)}
-                              {key.replace('-', ' ')}
-                              <Badge 
-                                variant="outline" 
-                                className={`ml-2 text-xs px-1.5 py-0.5 ${
-                                  category.importance === 'high' ? 'border-red-200 text-red-700' :
-                                  category.importance === 'medium' ? 'border-amber-200 text-amber-700' :
-                                  'border-slate-200 text-slate-600'
-                                }`}
-                              >
-                                {category.importance}
-                              </Badge>
-                            </Label>
-                            <p className="text-xs text-slate-500 mt-1">{category.description}</p>
-                          </div>
-                          <span className="text-xs font-medium px-2 py-0.5 bg-white rounded-full border border-slate-200">
-                            {category.uploaded}/{category.required}
-                          </span>
-                        </div>
-                        <Progress 
-                          value={category.completion} 
-                          className="h-1.5" 
-                          color={
-                            category.completion >= 100 ? "bg-green-500" :
-                            category.completion >= 50 ? "bg-amber-500" :
-                            "bg-blue-500"
-                          }
-                        />
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-500">
-                            {category.completion === 100 ? "Complete" : 
-                             category.missingDocs > 0 ? `${category.missingDocs} missing` : 
-                             "In progress"}
-                          </span>
-                          <span className="font-medium text-slate-700">{category.completion}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                dueDiligence && <DueDiligenceProgressComponent progress={dueDiligence as DDProgressType} />
               )}
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
-              <CardTitle className="text-lg font-medium flex items-center">
-                <Sparkles className="h-5 w-5 mr-2 text-primary-500" />
-                Quick Actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="border-slate-200 hover:border-primary-200 transition-all">
-                  <CardContent className="p-0">
-                    <Button
-                      variant="ghost"
-                      className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-primary-700 hover:bg-primary-50"
-                      onClick={() => navigate(`/documents?startupId=${id}`)}
-                    >
-                      <div className="bg-primary-100 p-3 rounded-full mb-3">
-                        <Upload className="h-5 w-5 text-primary-600" />
-                      </div>
-                      <span className="font-medium">Upload Documents</span>
-                      <span className="text-xs text-slate-500 mt-1">Add files to this startup</span>
-                    </Button>
-                  </CardContent>
-                </Card>
-                
-                <Card className="border-slate-200 hover:border-accent-200 transition-all">
-                  <CardContent className="p-0">
-                    <Button
-                      variant="ghost"
-                      className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-accent-700 hover:bg-accent-50"
-                      onClick={handleGenerateMemo}
-                      disabled={generateMemoMutation.isPending}
-                    >
-                      <div className="bg-accent-100 p-3 rounded-full mb-3">
-                        <FileText className="h-5 w-5 text-accent-600" />
-                      </div>
-                      <span className="font-medium">
-                        {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
-                      </span>
-                      <span className="text-xs text-slate-500 mt-1">Create investment analysis</span>
-                    </Button>
-                  </CardContent>
-                </Card>
-                
-                <Card className="border-slate-200 hover:border-indigo-200 transition-all">
-                  <CardContent className="p-0">
-                    <Button
-                      variant="ghost"
-                      className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-indigo-700 hover:bg-indigo-50"
-                      onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
-                    >
-                      <div className="bg-indigo-100 p-3 rounded-full mb-3">
-                        <MessageCircle className="h-5 w-5 text-indigo-600" />
-                      </div>
-                      <span className="font-medium">Ask AI Assistant</span>
-                      <span className="text-xs text-slate-500 mt-1">Get insights from documents</span>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Startup Summary */}
-          {!isLoadingStartup && startup && (
-            <Card className="border-slate-200 shadow-sm overflow-hidden">
-              <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
-                <CardTitle className="text-lg font-medium flex items-center">
-                  <Building2 className="h-5 w-5 mr-2 text-primary-500" />
-                  About {startup.name}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="col-span-2">
-                    <h3 className="text-base font-medium mb-2">Overview</h3>
-                    <p className="text-slate-600 mb-4">
-                      {startup.description || 'No description provided for this startup.'}
-                    </p>
-                    
-                    {/* Primary Contact Information */}
-                    {startup.primaryContact && (
-                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
-                        <h4 className="text-sm font-medium text-blue-900 mb-2 flex items-center">
-                          <Contact className="h-4 w-4 mr-2" />
-                          Primary Contact
-                        </h4>
-                        <div className="space-y-2">
-                          <div className="flex items-center text-sm">
-                            <User className="h-4 w-4 mr-2 text-blue-600" />
-                            <span className="text-slate-700">
-                            <strong>{startup.primaryContact.name}</strong> - {startup.primaryContact.position}
-                            </span>
-                          </div>
-                          <div className="flex items-center text-sm">
-                            <Mail className="h-4 w-4 mr-2 text-blue-600" />
-                            <a 
-                              href={`mailto:${startup.primaryContact.email}`}
-                              className="text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              {startup.primaryContact.email}
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {startup.website && (
-                      <div className="flex items-center space-x-2 mt-4">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                          onClick={() => window.open(startup.website, '_blank')}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Visit Website
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                    <h3 className="text-base font-medium mb-3">Key Details</h3>
-                    <div className="space-y-3">
-                      {startup.foundingDate && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 flex items-center">
-                            <Calendar className="h-4 w-4 mr-2" />
-                            Founded
-                          </span>
-                          <span className="font-medium">{formatDate(startup.foundingDate)}</span>
-                        </div>
-                      )}
-                      
-                      {startup.firstContactDate && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 flex items-center">
-                            <Contact className="h-4 w-4 mr-2" />
-                            First Contact
-                          </span>
-                          <span className="font-medium">{formatDate(startup.firstContactDate)}</span>
-                        </div>
-                      )}
-                      
-                      {startup.teamSize && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 flex items-center">
-                            <Users className="h-4 w-4 mr-2" />
-                            Team Size
-                          </span>
-                          <span className="font-medium">{startup.teamSize}</span>
-                        </div>
-                      )}
-                      
-                      {startup.amountSought && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 flex items-center">
-                            <DollarSign className="h-4 w-4 mr-2" />
-                            Funding Sought
-                          </span>
-                          <span className="font-medium">{formatAmount(startup.amountSought, startup.currency)}</span>
-                        </div>
-                      )}
-                      
-                      {startup.revenue && (
-                       <div className="flex justify-between text-sm">
-                         <span className="text-slate-500 flex items-center">
-                           <DollarSign className="h-4 w-4 mr-2" />
-                           Revenue
-                         </span>
-                         <span className="font-medium">{startup.currency} {startup.revenue.toLocaleString()}</span>
-                       </div>
-                     )}
-                     
-                     {startup.valuation && (
-                       <div className="flex justify-between text-sm">
-                         <span className="text-slate-500 flex items-center">
-                           <BarChart2 className="h-4 w-4 mr-2" />
-                           Valuation
-                         </span>
-                         <span className="font-medium">{startup.currency} {startup.valuation.toLocaleString()}</span>
-                       </div>
-                     )}
-                   </div>
-                 </div>
-               </div>
-             </CardContent>
-           </Card>
-         )}
-       </TabsContent>
-
-       {/* Documents Tab */}
-       <TabsContent value="documents" className="space-y-6">
-         <Card className="border-slate-200 shadow-sm overflow-hidden">
-           <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
-             <div>
-               <CardTitle className="text-lg font-medium flex items-center">
-                 <FileText className="h-5 w-5 mr-2 text-primary-500" />
-                 Documents
-               </CardTitle>
-               <CardDescription>All documents uploaded for this startup</CardDescription>
-             </div>
-             <Button 
-               onClick={() => navigate(`/documents/upload?startupId=${id}`)}
-               className="flex items-center gap-2"
-             >
-               <FileUp className="h-4 w-4" />
-               Upload
-             </Button>
-           </CardHeader>
-           <CardContent className="p-6">
-             {isLoadingDocuments ? (
-               <div className="space-y-4">
-                 {[1, 2, 3].map((i) => (
-                   <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
-                     <Skeleton className="h-12 w-12 rounded-full" />
-                     <div className="space-y-2 flex-1">
-                       <Skeleton className="h-4 w-48" />
-                       <div className="flex items-center gap-2">
-                         <Skeleton className="h-4 w-16 rounded-full" />
-                         <Skeleton className="h-4 w-24" />
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             ) : documents && documents.length > 0 ? (
-               <div className="space-y-3">
-                 {documents.map((doc) => (
-                   <div key={doc.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-primary-200 hover:shadow-sm transition-all">
-                     <div className="flex items-start">
-                       <div className={`p-3 rounded-lg mr-4 flex-shrink-0 
-                         ${doc.type === 'pitch-deck' ? 'bg-blue-100 text-blue-600' : 
-                          doc.type === 'financials' ? 'bg-emerald-100 text-emerald-600' : 
-                          doc.type === 'legal' ? 'bg-purple-100 text-purple-600' : 
-                          doc.type === 'tech' ? 'bg-indigo-100 text-indigo-600' : 
-                          'bg-primary-100 text-primary-600'}`}
-                       >
-                         <FileText className="h-6 w-6" />
-                       </div>
-                       <div className="flex-1 min-w-0">
-                         <div className="flex items-start justify-between">
-                           <div>
-                             <h4 className="text-base font-medium text-slate-800 truncate">{doc.name}</h4>
-                             <div className="mt-1 flex items-center flex-wrap gap-2">
-                               <Badge variant="outline" className="text-xs capitalize bg-slate-50 border-slate-200">
-                                 {doc.type.replace('-', ' ')}
-                               </Badge>
-                               <span className="text-xs text-slate-500 flex items-center">
-                                 <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                 {formatDate(doc.uploadedAt)}
-                               </span>
-                               <span className={`text-xs inline-flex items-center px-2 py-0.5 rounded-full ${
-                                 doc.processed ? 'bg-success-100 text-success-800' : 
-                                 doc.processingStatus === 'failed' ? 'bg-destructive-100 text-destructive-800' :
-                                 'bg-warning-100 text-warning-800'
-                               }`}>
-                                 {doc.processed ? (
-                                   <><Check className="h-3 w-3 mr-1" /> Processed</>
-                                 ) : doc.processingStatus === 'failed' ? (
-                                   <><X className="h-3 w-3 mr-1" /> Failed</>
-                                 ) : (
-                                   <><Clock className="h-3 w-3 mr-1" /> {doc.processingStatus === 'processing' ? 'Processing' : 'Pending'}</>
-                                 )}
-                               </span>
-                             </div>
-                           </div>
-                           
-                           <Button 
-                             variant="ghost" 
-                             size="sm"
-                             className="text-slate-600 hover:text-primary-600"
-                             onClick={() => navigate(`/documents/${doc.id}`)}
-                           >
-                             <ExternalLink className="h-4 w-4" />
-                           </Button>
-                         </div>
-                         
-                         {doc.description && (
-                           <p className="mt-2 text-sm text-slate-600 line-clamp-2">{doc.description}</p>
-                         )}
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             ) : (
-               <div className="text-center py-12 px-4">
-                 <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
-                   <FileText className="h-8 w-8 text-slate-400" />
-                 </div>
-                 <h3 className="mt-2 text-lg font-medium text-slate-800">No documents yet</h3>
-                 <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                   Get started by uploading documents for this startup. Documents will help with due diligence and investment decisions.
-                 </p>
-                 <div className="mt-6">
-                   <Button onClick={() => navigate(`/documents/upload?startupId=${id}`)}>
-                     <FileUp className="h-4 w-4 mr-2" />
-                     Upload First Document
-                   </Button>
-                 </div>
-               </div>
-             )}
-           </CardContent>
-           <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
-             <div className="text-xs text-slate-500">
-               {documents?.length ? `${documents.length} document${documents.length !== 1 ? 's' : ''} found` : 'No documents'}
-             </div>
-             <Button 
-               variant="link" 
-               size="sm" 
-               className="text-xs text-primary-600"
-               onClick={() => navigate('/documents')}
-             >
-               View All Documents
-             </Button>
-           </CardFooter>
-         </Card>
-       </TabsContent>
-
-       {/* Memos Tab */}
-       <TabsContent value="memos" className="space-y-6">
-         <Card className="border-slate-200 shadow-sm overflow-hidden">
-           <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
-             <div>
-               <CardTitle className="text-lg font-medium flex items-center">
-                 <Layers className="h-5 w-5 mr-2 text-primary-500" />
-                 Investment Memos
-               </CardTitle>
-               <CardDescription>Generated investment memos for this startup</CardDescription>
-             </div>
-             <Button 
-               onClick={handleGenerateMemo}
-               disabled={generateMemoMutation.isPending}
-               className="flex items-center gap-2"
-             >
-               <FileText className="h-4 w-4" />
-               {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
-             </Button>
-           </CardHeader>
-           <CardContent className="p-6">
-             {isLoadingMemos ? (
-               <div className="space-y-4">
-                 {[1, 2].map((i) => (
-                   <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
-                     <Skeleton className="h-12 w-12 rounded-lg" />
-                     <div className="space-y-2 flex-1">
-                       <Skeleton className="h-4 w-48" />
-                       <div className="flex items-center gap-2">
-                         <Skeleton className="h-4 w-16 rounded-full" />
-                         <Skeleton className="h-4 w-24" />
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             ) : memos && memos.length > 0 ? (
-               <div className="space-y-3">
-                 {memos.map((memo) => (
-                   <div key={memo.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-accent-200 hover:shadow-sm transition-all">
-                     <div className="flex items-start">
-                       <div className="p-3 rounded-lg mr-4 flex-shrink-0 bg-accent-100 text-accent-600">
-                         <Layers className="h-6 w-6" />
-                       </div>
-                       <div className="flex-1 min-w-0">
-                         <div className="flex items-start justify-between">
-                           <div>
-                             <h4 className="text-base font-medium text-slate-800">
-                               Investment Memo v{memo.version}
-                             </h4>
-                             <div className="mt-1 flex items-center flex-wrap gap-2">
-                               <Badge 
-                                 variant={memo.status === 'draft' ? 'outline' : 
-                                         memo.status === 'review' ? 'secondary' : 'success'} 
-                                 className="text-xs capitalize"
-                               >
-                                 {memo.status}
-                               </Badge>
-                               <span className="text-xs text-slate-500 flex items-center">
-                                 <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                 {formatDate(memo.createdAt)}
-                               </span>
-                               <span className="text-xs text-slate-500 flex items-center">
-                                 <AlignLeft className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
-                                 {memo.sections?.length || 0} sections
-                               </span>
-                             </div>
-                           </div>
-                           
-                           <Button 
-                             variant="outline" 
-                             size="sm"
-                             className="text-accent-600 border-accent-200 hover:bg-accent-50"
-                             onClick={() => navigate(`/memos/${memo.id}`)}
-                           >
-                             <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                             View
-                           </Button>
-                         </div>
-                         
-                         {memo.summary && (
-                           <p className="mt-2 text-sm text-slate-600 line-clamp-2">{memo.summary}</p>
-                         )}
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             ) : (
-               <div className="text-center py-12 px-4">
-                 <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
-                   <AlignLeft className="h-8 w-8 text-slate-400" />
-                 </div>
-                 <h3 className="mt-2 text-lg font-medium text-slate-800">No memos yet</h3>
-                 <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                   Generate your first investment memo for this startup to analyze its potential and document your investment thesis.
-                 </p>
-                 <div className="mt-6">
-                   <Button 
-                     onClick={handleGenerateMemo}
-                     disabled={generateMemoMutation.isPending}
-                     className="flex items-center gap-2"
-                   >
-                     <FileText className="h-4 w-4" />
-                     {generateMemoMutation.isPending ? "Generating..." : "Generate First Memo"}
-                   </Button>
-                 </div>
-               </div>
-             )}
-           </CardContent>
-           <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
-             <div className="text-xs text-slate-500">
-               {memos?.length ? `${memos.length} memo${memos.length !== 1 ? 's' : ''} found` : 'No memos'}
-             </div>
-             <Button 
-               variant="link" 
-               size="sm" 
-               className="text-xs text-primary-600"
-               onClick={() => navigate('/memos')}
-             >
-               View All Memos
-             </Button>
-           </CardFooter>
-         </Card>
-       </TabsContent>
-
-       {/* AI Assistant Tab */}
-       <TabsContent value="ai" className="space-y-6">
+         {/* Quick Actions */}
          <Card className="border-slate-200 shadow-sm overflow-hidden">
            <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
              <CardTitle className="text-lg font-medium flex items-center">
-               <MessageCircle className="h-5 w-5 mr-2 text-primary-500" />
-               AI Assistant
+               <Sparkles className="h-5 w-5 mr-2 text-primary-500" />
+               Quick Actions
              </CardTitle>
-             <CardDescription>
-               Ask questions about this startup based on the uploaded documents
-             </CardDescription>
            </CardHeader>
            <CardContent className="p-6">
-             <div className="text-center py-12 px-4">
-               <div className="bg-indigo-50 inline-flex rounded-full p-4 mb-4">
-                 <MessageCircle className="h-8 w-8 text-indigo-600" />
-               </div>
-               <h3 className="mt-2 text-lg font-medium text-slate-800">AI Assistant</h3>
-               <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
-                 Get insights from documents, analyze financial data, and ask questions about {startup?.name || "this startup"}.
-               </p>
-               <div className="mt-6 space-x-3">
-                 <Button 
-                   onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
-                   className="flex items-center gap-2"
-                 >
-                   <MessageCircle className="h-4 w-4" />
-                   Go to AI Assistant
-                 </Button>
-               </div>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <Card className="border-slate-200 hover:border-primary-200 transition-all">
+                 <CardContent className="p-0">
+                   <Button
+                     variant="ghost"
+                     className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-primary-700 hover:bg-primary-50"
+                     onClick={() => navigate(`/documents?startupId=${id}`)}
+                   >
+                     <div className="bg-primary-100 p-3 rounded-full mb-3">
+                       <Upload className="h-5 w-5 text-primary-600" />
+                     </div>
+                     <span className="font-medium">Upload Documents</span>
+                     <span className="text-xs text-slate-500 mt-1">Add files to this startup</span>
+                   </Button>
+                 </CardContent>
+               </Card>
+               
+               <Card className="border-slate-200 hover:border-accent-200 transition-all">
+                 <CardContent className="p-0">
+                   <Button
+                     variant="ghost"
+                     className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-accent-700 hover:bg-accent-50"
+                     onClick={handleGenerateMemo}
+                     disabled={generateMemoMutation.isPending}
+                   >
+                     <div className="bg-accent-100 p-3 rounded-full mb-3">
+                       <FileText className="h-5 w-5 text-accent-600" />
+                     </div>
+                     <span className="font-medium">
+                       {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
+                     </span>
+                     <span className="text-xs text-slate-500 mt-1">Create investment analysis</span>
+                   </Button>
+                 </CardContent>
+               </Card>
+               
+               <Card className="border-slate-200 hover:border-indigo-200 transition-all">
+                 <CardContent className="p-0">
+                   <Button
+                     variant="ghost"
+                     className="w-full h-full py-6 flex flex-col items-center justify-center rounded-lg text-slate-700 hover:text-indigo-700 hover:bg-indigo-50"
+                     onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
+                   >
+                     <div className="bg-indigo-100 p-3 rounded-full mb-3">
+                       <MessageCircle className="h-5 w-5 text-indigo-600" />
+                     </div>
+                     <span className="font-medium">Ask AI Assistant</span>
+                     <span className="text-xs text-slate-500 mt-1">Get insights from documents</span>
+                   </Button>
+                 </CardContent>
+               </Card>
              </div>
            </CardContent>
-           
-           <CardFooter className="bg-slate-50 border-t border-slate-200 p-4">
-             <div className="w-full">
-               <h4 className="text-xs font-medium text-slate-700 mb-2">Sample Questions:</h4>
-               <div className="flex flex-wrap gap-2">
-                 {getSampleQuestions(startup?.vertical).map((question, idx) => (
-                   <Badge 
-                     key={idx} 
-                     variant="outline" 
-                     className="text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200"
-                     onClick={() => navigate(`/ai-assistant?startupId=${id}&question=${encodeURIComponent(question)}`)}
-                   >
-                     {question}
-                   </Badge>
-                 ))}
-               </div>
-             </div>
-           </CardFooter>
          </Card>
-       </TabsContent>
-     </Tabs>
-   </div>
- );
+         
+         {/* Startup Summary */}
+         {!isLoadingStartup && startup && (
+           <Card className="border-slate-200 shadow-sm overflow-hidden">
+             <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
+               <CardTitle className="text-lg font-medium flex items-center">
+                 <Building2 className="h-5 w-5 mr-2 text-primary-500" />
+                 About {startup.name}
+               </CardTitle>
+             </CardHeader>
+             <CardContent className="p-6">
+               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                 <div className="col-span-2">
+                   <h3 className="text-base font-medium mb-2">Overview</h3>
+                   <p className="text-slate-600 mb-4">
+                     {startup.description || 'No description provided for this startup.'}
+                   </p>
+                   
+                   {/* Primary Contact Information */}
+                   {startup.primaryContact && (
+                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
+                       <h4 className="text-sm font-medium text-blue-900 mb-2 flex items-center">
+                         <Contact className="h-4 w-4 mr-2" />
+                         Primary Contact
+                       </h4>
+                       <div className="space-y-2">
+                         <div className="flex items-center text-sm">
+                           <User className="h-4 w-4 mr-2 text-blue-600" />
+                           <span className="text-slate-700">
+                           <strong>{startup.primaryContact.name}</strong> - {startup.primaryContact.position}
+                           </span>
+                         </div>
+                         <div className="flex items-center text-sm">
+                           <Mail className="h-4 w-4 mr-2 text-blue-600" />
+                           <a 
+                             href={`mailto:${startup.primaryContact.email}`}
+                             className="text-blue-600 hover:text-blue-800 hover:underline"
+                           >
+                             {startup.primaryContact.email}
+                           </a>
+                         </div>
+                       </div>
+                     </div>
+                   )}
+                   
+                   {startup.website && (
+                     <div className="flex items-center space-x-2 mt-4">
+                       <Button 
+                         variant="outline" 
+                         size="sm"
+                         className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                         onClick={() => window.open(startup.website, '_blank')}
+                       >
+                         <ExternalLink className="h-4 w-4 mr-2" />
+                         Visit Website
+                       </Button>
+                     </div>
+                   )}
+                 </div>
+                 
+                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                   <h3 className="text-base font-medium mb-3">Key Details</h3>
+                   <div className="space-y-3">
+                     {startup.foundingDate && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <Calendar className="h-4 w-4 mr-2" />
+                           Founded
+                         </span>
+                         <span className="font-medium">{formatDate(startup.foundingDate)}</span>
+                       </div>
+                     )}
+                     
+                     {startup.firstContactDate && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <Contact className="h-4 w-4 mr-2" />
+                           First Contact
+                         </span>
+                         <span className="font-medium">{formatDate(startup.firstContactDate)}</span>
+                       </div>
+                     )}
+                     
+                     {startup.teamSize && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <Users className="h-4 w-4 mr-2" />
+                           Team Size
+                         </span>
+                         <span className="font-medium">{startup.teamSize}</span>
+                       </div>
+                     )}
+                     
+                     {startup.amountSought && (
+                       <div className="flex justify-between text-sm">
+                         <span className="text-slate-500 flex items-center">
+                           <DollarSign className="h-4 w-4 mr-2" />
+                           Funding Sought
+                         </span>
+                         <span className="font-medium">{formatAmount(startup.amountSought, startup.currency)}</span>
+                       </div>
+                     )}
+                     
+                     {startup.revenue && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 flex items-center">
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          Revenue
+                        </span>
+                        <span className="font-medium">{startup.currency} {startup.revenue.toLocaleString()}</span>
+                      </div>
+                    )}
+                    
+                    {startup.valuation && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 flex items-center">
+                          <BarChart2 className="h-4 w-4 mr-2" />
+                          Valuation
+                        </span>
+                        <span className="font-medium">{startup.currency} {startup.valuation.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </TabsContent>
+
+      {/* Documents Tab */}
+      <TabsContent value="documents" className="space-y-6">
+        <Card className="border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg font-medium flex items-center">
+                <FileText className="h-5 w-5 mr-2 text-primary-500" />
+                Documents
+              </CardTitle>
+              <CardDescription>All documents uploaded for this startup</CardDescription>
+            </div>
+            <Button 
+              onClick={() => navigate(`/documents/upload?startupId=${id}`)}
+              className="flex items-center gap-2"
+            >
+              <FileUp className="h-4 w-4" />
+              Upload
+            </Button>
+          </CardHeader>
+          <CardContent className="p-6">
+            {isLoadingDocuments ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
+                    <Skeleton className="h-12 w-12 rounded-full" />
+                    <div className="space-y-2 flex-1">
+                      <Skeleton className="h-4 w-48" />
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-16 rounded-full" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : documents && documents.length > 0 ? (
+              <div className="space-y-3">
+                {documents.map((doc) => (
+                  <div key={doc.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-primary-200 hover:shadow-sm transition-all">
+                    <div className="flex items-start">
+                      <div className={`p-3 rounded-lg mr-4 flex-shrink-0 
+                        ${doc.type === 'pitch-deck' ? 'bg-blue-100 text-blue-600' : 
+                         doc.type === 'financials' ? 'bg-emerald-100 text-emerald-600' : 
+                         doc.type === 'legal' ? 'bg-purple-100 text-purple-600' : 
+                         doc.type === 'tech' ? 'bg-indigo-100 text-indigo-600' : 
+                         'bg-primary-100 text-primary-600'}`}
+                      >
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="text-base font-medium text-slate-800 truncate">{doc.name}</h4>
+                            <div className="mt-1 flex items-center flex-wrap gap-2">
+                              <Badge variant="outline" className="text-xs capitalize bg-slate-50 border-slate-200">
+                                {doc.type.replace('-', ' ')}
+                              </Badge>
+                              <span className="text-xs text-slate-500 flex items-center">
+                                <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                {formatDate(doc.uploadedAt)}
+                              </span>
+                              <span className={`text-xs inline-flex items-center px-2 py-0.5 rounded-full ${
+                                doc.processed ? 'bg-success-100 text-success-800' : 
+                                doc.processingStatus === 'failed' ? 'bg-destructive-100 text-destructive-800' :
+                                'bg-warning-100 text-warning-800'
+                              }`}>
+                                {doc.processed ? (
+                                  <><Check className="h-3 w-3 mr-1" /> Processed</>
+                                ) : doc.processingStatus === 'failed' ? (
+                                  <><X className="h-3 w-3 mr-1" /> Failed</>
+                                ) : (
+                                  <><Clock className="h-3 w-3 mr-1" /> {doc.processingStatus === 'processing' ? 'Processing' : 'Pending'}</>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="text-slate-600 hover:text-primary-600"
+                            onClick={() => navigate(`/documents/${doc.id}`)}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        {doc.description && (
+                          <p className="mt-2 text-sm text-slate-600 line-clamp-2">{doc.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 px-4">
+                <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
+                  <FileText className="h-8 w-8 text-slate-400" />
+                </div>
+                <h3 className="mt-2 text-lg font-medium text-slate-800">No documents yet</h3>
+                <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                  Get started by uploading documents for this startup. Documents will help with due diligence and investment decisions.
+                </p>
+                <div className="mt-6">
+                  <Button onClick={() => navigate(`/documents/upload?startupId=${id}`)}>
+                    <FileUp className="h-4 w-4 mr-2" />
+                    Upload First Document
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
+            <div className="text-xs text-slate-500">
+              {documents?.length ? `${documents.length} document${documents.length !== 1 ? 's' : ''} found` : 'No documents'}
+            </div>
+            <Button 
+              variant="link" 
+              size="sm" 
+              className="text-xs text-primary-600"
+              onClick={() => navigate('/documents')}
+            >
+              View All Documents
+            </Button>
+          </CardFooter>
+        </Card>
+      </TabsContent>
+
+      {/* Memos Tab */}
+      <TabsContent value="memos" className="space-y-6">
+        <Card className="border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50 border-b border-slate-200 py-4 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg font-medium flex items-center">
+                <Layers className="h-5 w-5 mr-2 text-primary-500" />
+                Investment Memos
+              </CardTitle>
+              <CardDescription>Generated investment memos for this startup</CardDescription>
+            </div>
+            <Button 
+              onClick={handleGenerateMemo}
+              disabled={generateMemoMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              {generateMemoMutation.isPending ? "Generating..." : "Generate Memo"}
+            </Button>
+          </CardHeader>
+          <CardContent className="p-6">
+            {isLoadingMemos ? (
+              <div className="space-y-4">
+                {[1, 2].map((i) => (
+                  <div key={i} className="flex items-center space-x-4 p-3 border border-slate-200 rounded-lg">
+                    <Skeleton className="h-12 w-12 rounded-lg" />
+                    <div className="space-y-2 flex-1">
+                      <Skeleton className="h-4 w-48" />
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-16 rounded-full" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : memos && memos.length > 0 ? (
+              <div className="space-y-3">
+                {memos.map((memo) => (
+                  <div key={memo.id} className="p-4 bg-white border border-slate-200 rounded-lg hover:border-accent-200 hover:shadow-sm transition-all">
+                    <div className="flex items-start">
+                      <div className="p-3 rounded-lg mr-4 flex-shrink-0 bg-accent-100 text-accent-600">
+                        <Layers className="h-6 w-6" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="text-base font-medium text-slate-800">
+                              Investment Memo v{memo.version}
+                            </h4>
+                            <div className="mt-1 flex items-center flex-wrap gap-2">
+                              <Badge 
+                                variant={memo.status === 'draft' ? 'outline' : 
+                                        memo.status === 'review' ? 'secondary' : 'success'} 
+                                className="text-xs capitalize"
+                              >
+                                {memo.status}
+                              </Badge>
+                              <span className="text-xs text-slate-500 flex items-center">
+                                <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                {formatDate(memo.createdAt)}
+                              </span>
+                              <span className="text-xs text-slate-500 flex items-center">
+                                <AlignLeft className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+                                {memo.sections?.length || 0} sections
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-accent-600 border-accent-200 hover:bg-accent-50"
+                            onClick={() => navigate(`/memos/${memo.id}`)}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                            View
+                          </Button>
+                        </div>
+                        
+                        {memo.summary && (
+                          <p className="mt-2 text-sm text-slate-600 line-clamp-2">{memo.summary}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 px-4">
+                <div className="bg-slate-50 inline-flex rounded-full p-4 mb-4">
+                  <AlignLeft className="h-8 w-8 text-slate-400" />
+                </div>
+                <h3 className="mt-2 text-lg font-medium text-slate-800">No memos yet</h3>
+                <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                  Generate your first investment memo for this startup to analyze its potential and document your investment thesis.
+                </p>
+                <div className="mt-6">
+                  <Button 
+                    onClick={handleGenerateMemo}
+                    disabled={generateMemoMutation.isPending}
+                    className="flex items-center gap-2"
+                  >
+                    <FileText className="h-4 w-4" />
+                    {generateMemoMutation.isPending ? "Generating..." : "Generate First Memo"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="bg-slate-50 border-t border-slate-200 py-3 flex justify-between">
+            <div className="text-xs text-slate-500">
+              {memos?.length ? `${memos.length} memo${memos.length !== 1 ? 's' : ''} found` : 'No memos'}
+            </div>
+            <Button 
+              variant="link" 
+              size="sm" 
+              className="text-xs text-primary-600"
+              onClick={() => navigate('/memos')}
+            >
+              View All Memos
+            </Button>
+          </CardFooter>
+        </Card>
+      </TabsContent>
+
+      {/* AI Assistant Tab */}
+      <TabsContent value="ai" className="space-y-6">
+        <Card className="border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50 border-b border-slate-200 py-4">
+            <CardTitle className="text-lg font-medium flex items-center">
+              <MessageCircle className="h-5 w-5 mr-2 text-primary-500" />
+              AI Assistant
+            </CardTitle>
+            <CardDescription>
+              Ask questions about this startup based on the uploaded documents
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="text-center py-12 px-4">
+              <div className="bg-indigo-50 inline-flex rounded-full p-4 mb-4">
+                <MessageCircle className="h-8 w-8 text-indigo-600" />
+              </div>
+              <h3 className="mt-2 text-lg font-medium text-slate-800">AI Assistant</h3>
+              <p className="mt-1 text-base text-slate-500 max-w-md mx-auto">
+                Get insights from documents, analyze financial data, and ask questions about {startup?.name || "this startup"}.
+              </p>
+              <div className="mt-6 space-x-3">
+                <Button 
+                  onClick={() => navigate(`/ai-assistant?startupId=${id}`)}
+                  className="flex items-center gap-2"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Go to AI Assistant
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+          
+          <CardFooter className="bg-slate-50 border-t border-slate-200 p-4">
+            <div className="w-full">
+              <h4 className="text-xs font-medium text-slate-700 mb-2">Sample Questions:</h4>
+              <div className="flex flex-wrap gap-2">
+                {getSampleQuestions(startup?.vertical).map((question, idx) => (
+                  <Badge 
+                    key={idx} 
+                    variant="outline" 
+                    className="text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200"
+                    onClick={() => navigate(`/ai-assistant?startupId=${id}&question=${encodeURIComponent(question)}`)}
+                  >
+                    {question}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </CardFooter>
+        </Card>
+      </TabsContent>
+    </Tabs>
+
+    {/* Investment Decision Modal */}
+    {decisionModal.type && (
+      <InvestmentDecisionModal
+        isOpen={decisionModal.isOpen}
+        onClose={() => setDecisionModal({ isOpen: false, type: null })}
+        decisionType={decisionModal.type}
+        startupName={startup?.name || ''}
+        onSubmit={handleDecisionSubmit}
+        isLoading={isDecisionLoading}
+      />
+    )}
+  </div>
+);
 }
 
 // Helper function to get category icon
 function getCategoryIcon(category: string) {
- switch(category.toLowerCase()) {
-   case 'financials':
-     return <DollarSign className="h-4 w-4 mr-2 text-emerald-600" />;
-   case 'legal':
-     return <FileText className="h-4 w-4 mr-2 text-purple-600" />;
-   case 'pitch-deck':
-     return <Layers className="h-4 w-4 mr-2 text-blue-600" />;
-   case 'tech':
-     return <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />;
-   case 'market':
-     return <BarChart2 className="h-4 w-4 mr-2 text-amber-600" />;
-   case 'other':
-     return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
-   default:
-     return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
- }
+switch(category.toLowerCase()) {
+  case 'financials':
+    return <DollarSign className="h-4 w-4 mr-2 text-emerald-600" />;
+  case 'legal':
+    return <FileText className="h-4 w-4 mr-2 text-purple-600" />;
+  case 'pitch-deck':
+    return <Layers className="h-4 w-4 mr-2 text-blue-600" />;
+  case 'tech':
+    return <Sparkles className="h-4 w-4 mr-2 text-indigo-600" />;
+  case 'market':
+    return <BarChart2 className="h-4 w-4 mr-2 text-amber-600" />;
+  case 'other':
+    return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
+  default:
+    return <FileText className="h-4 w-4 mr-2 text-slate-600" />;
+}
 }
 
 // Helper function to get sample questions based on vertical
 function getSampleQuestions(vertical?: string) {
- const baseQuestions = [
-   "What are the key metrics?",
-   "Who is on the founding team?"
- ];
- 
- if (!vertical) return baseQuestions;
- 
- switch(vertical.toLowerCase()) {
-   case 'fintech':
-     return [
-       "What are the unit economics?",
-       "What's the customer acquisition cost?",
-       "What regulations apply?"
-     ];
-   case 'ai':
-     return [
-       "What AI technology do they use?",
-       "What's their data strategy?",
-       "How do they compare to competitors?"
-     ];
-   case 'saas':
-     return [
-       "What's their MRR growth?",
-       "What's their churn rate?",
-       "How is their sales pipeline?"
-     ];
-   case 'health':
-     return [
-       "What clinical validation exists?",
-       "What's their regulatory pathway?",
-       "What's the go-to-market strategy?"
-     ];
-   default:
-     return [
-       "What's the business model?",
-       "What's the market opportunity?",
-       "What's the competitive landscape?"
-     ];
- }
+const baseQuestions = [
+  "What are the key metrics?",
+  "Who is on the founding team?"
+];
+
+if (!vertical) return baseQuestions;
+
+switch(vertical.toLowerCase()) {
+  case 'fintech':
+    return [
+      "What are the unit economics?",
+      "What's the customer acquisition cost?",
+      "What regulations apply?"
+    ];
+  case 'ai':
+    return [
+      "What AI technology do they use?",
+      "What's their data strategy?",
+      "How do they compare to competitors?"
+    ];
+  case 'saas':
+    return [
+      "What's their MRR growth?",
+      "What's their churn rate?",
+      "How is their sales pipeline?"
+    ];
+  case 'health':
+    return [
+      "What clinical validation exists?",
+      "What's their regulatory pathway?",
+      "What's the go-to-market strategy?"
+    ];
+  default:
+    return [
+      "What's the business model?",
+      "What's the market opportunity?",
+      "What's the competitive landscape?"
+    ];
+}
 }

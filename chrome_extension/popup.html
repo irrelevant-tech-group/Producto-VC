@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dropbox Document Navigator</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Dropbox Navigator</h1>
+    </div>
+    
+    <div class="content">
+      <div id="login-section" class="section">
+        <div class="logo">
+          <!-- Dropbox logo SVG -->
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 6.7L7.05 2.85L2.1 6.7L7.05 10.55L12 6.7ZM12 6.7L16.95 2.85L21.9 6.7L16.95 10.55L12 6.7ZM12 17.3L7.05 13.45L2.1 17.3L7.05 21.15L12 17.3ZM12 17.3L16.95 13.45L21.9 17.3L16.95 21.15L12 17.3Z" fill="currentColor"/>
+          </svg>
+        </div>
+        <button id="login-button" class="btn primary">Connect to Dropbox</button>
+        <p class="description">Connect your Dropbox account to browse and select your documents</p>
+      </div>
+      
+      <!-- Nueva sección para login de VC -->
+      <div id="vc-login-section" class="section hidden">
+        <div class="logo vc-logo">
+          <!-- Logo placeholder para VC -->
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
+            <path d="M2 17L12 22L22 17M2 12L12 17L22 12" stroke="currentColor" stroke-width="2"/>
+          </svg>
+        </div>
+        <h2>Conectar con plataforma VC</h2>
+        <div class="form-group">
+          <input type="email" id="vc-email" placeholder="Email" class="form-control">
+        </div>
+        <div class="form-group">
+          <input type="password" id="vc-password" placeholder="Contraseña" class="form-control">
+        </div>
+        <button id="vc-login-button" class="btn primary">Conectar</button>
+        <p class="description">Conecta con tu cuenta de la plataforma VC para subir documentos directamente</p>
+      </div>
+      
+      <div id="files-section" class="section hidden">
+        <div class="path-navigation">
+          <button id="back-button" class="btn secondary">← Back</button>
+          <span id="current-path">/</span>
+        </div>
+        
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search files...">
+          <button id="search-button" class="btn secondary">Search</button>
+        </div>
+        
+        <div class="file-list" id="file-list">
+          <!-- Files and folders will be listed here -->
+          <div class="loading-indicator">
+            <div class="loading-spinner"></div>
+            <div>Loading...</div>
+          </div>
+        </div>
+        
+        <div class="actions">
+          <button id="select-all" class="btn secondary">Select All</button>
+          <button id="view-selected" class="btn primary" disabled>View Selected</button>
+        </div>
+        
+        <!-- Nueva sección para selección de startup -->
+        <div id="startup-selection" class="section hidden">
+          <h3>Seleccionar Startup</h3>
+          <select id="startup-select" class="form-control">
+            <option value="">Seleccionar startup...</option>
+          </select>
+          
+          <div class="document-type">
+            <h3>Tipo de documento</h3>
+            <select id="document-type" class="form-control">
+              <option value="pitch-deck">Pitch Deck</option>
+              <option value="financials">Financials</option>
+              <option value="legal">Legal</option>
+              <option value="tech">Tech</option>
+              <option value="market">Market</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          
+          <button id="upload-to-vc" class="btn primary" disabled>Subir a plataforma VC</button>
+        </div>
+      </div>
+      
+      <div id="status-message" class="status hidden"></div>
+    </div>
+    
+    <div class="footer">
+      <button id="logout-button" class="btn text hidden">Disconnect from Dropbox</button>
+      <button id="vc-logout-button" class="btn text hidden">Disconnect from VC</button>
+    </div>
+  </div>
+
+  <script src="js/dropbox-api.js"></script>
+  <script src="js/popup.js"></script>
+</body>
+</html>
