@@ -61,6 +61,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>; // Nuevo
   getUserByClerkId(clerkId: string): Promise<User | undefined>; // Nuevo
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>; // Nuevo
+  getUsersByFund(fundId: string): Promise<User[]>;
   
   // Fund operations (nuevos)
   getFund(id: string): Promise<Fund | undefined>;
@@ -149,6 +150,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning();
     return updated;
+  }
+  
+  async getUsersByFund(fundId: string): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.fundId, fundId));
   }
   
   // Nuevos métodos para fondos
