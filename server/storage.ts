@@ -59,9 +59,12 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByClerkId(clerkId: string): Promise<User | undefined>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
+  getUsersByFund(fundId: string): Promise<User[]>;
+
   
   // Fund operations
   getFund(id: string): Promise<Fund | undefined>;
@@ -153,7 +156,11 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
   
-  // Métodos para fondos (sin cambios)
+
+  async getUsersByFund(fundId: string): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.fundId, fundId));
+  }
+  
   async getFund(id: string): Promise<Fund | undefined> {
     const [fund] = await db.select().from(funds).where(eq(funds.id, id));
     return fund;
