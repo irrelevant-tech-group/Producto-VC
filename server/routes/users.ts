@@ -96,7 +96,7 @@ router.post("/", requireAuth, loadUserFromDb, requireAdmin, async (req: Request,
     await clerkClient.organizations.createOrganizationMembership({
       organizationId: 'org_2xLH04HA77W1PcUSPYetX2Pew5F',
       userId: clerkUser.id,
-      role: 'org:'+role, // 'org:admin', 'org:member'
+      role: 'org:'+role, // 'org:admin', 'org:member', 'org:organization_admin'
     });
     // 2. Guardar usuario en la base de datos local
     const newUser = await storage.createUser({
