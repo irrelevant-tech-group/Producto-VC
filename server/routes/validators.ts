@@ -65,7 +65,7 @@ export const rejectMemoSchema = z.object({
 export const updateStartupSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
   vertical: z.enum(['fintech', 'saas', 'marketplace', 'ecommerce', 'ai', 'cleantech', 'other']).optional(),
-  stage: z.enum(['pre-seed', 'seed', 'series-a']).optional(),
+  stage: z.enum(['First Approach', 'Due Diligence', 'Post inversion']).optional(),
   location: z.string().min(1, "Location is required").optional(),
   status: z.enum(['active', 'invested', 'standby', 'declined', 'archived']).optional(),
   amountSought: z.number().min(0, "Amount sought must be positive").optional(),

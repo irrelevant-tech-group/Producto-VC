@@ -30,9 +30,9 @@ export const startupVerticalEnum = pgEnum('startup_vertical', [
   'other'
 ]);
 export const startupStageEnum = pgEnum('startup_stage', [
-  'pre-seed',
-  'seed',
-  'series-a'
+  'First Approach',
+  'Due Diligence',
+  'Post inversion'
 ]);
 export const startupStatusEnum = pgEnum('startup_status', [
   'active',

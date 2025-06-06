@@ -78,9 +78,9 @@ const defaultThesisData: ThesisFormData = {
     { vertical: "marketplace", weight: 0.2 }
   ],
   preferredStages: [
-    { stage: "pre-seed", weight: 0.4, ticketRange: { min: 50000, max: 200000 } },
-    { stage: "seed", weight: 0.5, ticketRange: { min: 200000, max: 500000 } },
-    { stage: "series-a", weight: 0.1, ticketRange: { min: 500000, max: 1000000 } }
+    { stage: "First Approach", weight: 0.4, ticketRange: { min: 50000, max: 200000 } },
+    { stage: "Due Diligence", weight: 0.5, ticketRange: { min: 200000, max: 500000 } },
+    { stage: "Post inversion", weight: 0.1, ticketRange: { min: 500000, max: 1000000 } }
   ],
   geographicFocus: [
     { region: "North America", weight: 0.4 },
@@ -104,7 +104,7 @@ const defaultThesisData: ThesisFormData = {
 };
 
 const verticalOptions = ["fintech", "saas", "ai", "marketplace", "ecommerce", "cleantech", "health"];
-const stageOptions = ["pre-seed", "seed", "series-a"];
+const stageOptions = ["First Approach", "Due Diligence", "Post inversion"];
 const regionOptions = ["North America", "Latin America", "Europe", "Asia Pacific", "Middle East", "Africa"];
 
 export const ThesisForm = ({ thesis, onSave, onCancel, isLoading }: ThesisFormProps) => {
