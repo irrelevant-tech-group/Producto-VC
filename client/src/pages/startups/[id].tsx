@@ -431,6 +431,27 @@ export default function StartupDetail() {
           </CardContent>
         </Card>
 
+        {/* Valuation */}
+        <Card className="shadow-sm border-slate-200 hover:border-success-200 hover:shadow transition-all">
+          <CardContent className="p-4">
+            <div className="flex items-center">
+              <div className="bg-success-100 p-2.5 rounded-lg mr-3">
+                <DollarSign className="h-5 w-5 text-success-600" />
+              </div>
+              <div>
+                <CardDescription className="text-xs font-medium text-secondary-500">Valuation</CardDescription>
+                {isLoadingStartup ? (
+                  <Skeleton className="h-5 w-32 mt-1" />
+                ) : (
+                  <CardTitle className="text-base font-medium">
+                    {startup?.valuation ? formatAmount(startup.valuation, startup.currency) : "Not specified"}
+                  </CardTitle>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Documents */}
         <Card className="shadow-sm border-slate-200 hover:border-warning-200 hover:shadow transition-all">
           <CardContent className="p-4">
