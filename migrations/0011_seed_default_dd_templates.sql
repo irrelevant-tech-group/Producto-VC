@@ -10,7 +10,7 @@ SELECT
     {"key": "legal", "name": "Legal Documents", "required": 4, "importance": "medium", "description": "Corporate structure, IP, contracts, compliance", "order": 3, "isDefault": true},
     {"key": "tech", "name": "Technical Documentation", "required": 2, "importance": "high", "description": "Technical documentation, architecture, security", "order": 4, "isDefault": true},
     {"key": "market", "name": "Market Analysis", "required": 2, "importance": "medium", "description": "Market research, competitive analysis", "order": 5, "isDefault": true},
-    {"key": "other", "name": "Other Documents", "required": 0, "importance": "low", "description": "Additional supporting documents", "order": 999, "isDefault": true}
+    {"key": "other", "name": "Additional Documents", "required": 0, "importance": "low", "description": "Additional supporting documents", "order": 999, "isDefault": true}
   ]'::jsonb as categories,
   NOW() as created_at,
   NOW() as updated_at
