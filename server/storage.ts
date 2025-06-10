@@ -843,10 +843,10 @@ async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> 
         importance: 'medium',
         description: 'Market research, competitive analysis'
       },
-      'other': { 
+      'Additional Documents': { 
         required: 0, 
         importance: 'low',
-        description: 'Additional supporting documents'
+        description: 'Additional Documents'
       }
     };
  

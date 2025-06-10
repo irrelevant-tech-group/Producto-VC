@@ -69,7 +69,7 @@ export class DueDiligenceRepository implements IDueDiligenceRepository {
         name: 'Other Documents',
         required: 0,
         importance: 'low',
-        description: 'Additional supporting documents',
+        description: 'Additional Documents',
         order: 999,
         isDefault: true
       }
