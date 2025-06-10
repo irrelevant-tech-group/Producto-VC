@@ -18,6 +18,7 @@ import AiAssistant from './pages/ai-assistant/index';
 import NotFound from './pages/not-found';
 import SettingsPage from './pages/settings/index';
 import DueDiligenceSettings from './pages/settings/DueDiligenceSettings';
+import OrganizationPage from './pages/organization';
 
 // Auth Pages
 import SignInPage from './components/auth/SignInPage';
@@ -187,6 +188,17 @@ function App() {
               <SignedIn>
                 <MainLayout>
                   <DueDiligenceSettings />
+                </MainLayout>
+              </SignedIn>
+              <SignedOut>
+                <RedirectToSignIn />
+              </SignedOut>
+            </Route>
+
+            <Route path="/organization">
+              <SignedIn>
+                <MainLayout>
+                  <OrganizationPage />
                 </MainLayout>
               </SignedIn>
               <SignedOut>
