@@ -17,9 +17,6 @@ import { extractTextFromImage } from './fileHandlers/imageHandler';
 export async function extractAndProcessContent(document: Document): Promise<DocumentProcessingResult> {
   const startTime = Date.now();
 
-  // Verificar que el documento tenga fundId
-  console.log(`📋 Procesando documento: ${document.name} (StartupId: ${document.startupId}, FundId: ${document.fundId})`);
-
   // Leer buffer: Google Cloud Storage, local o fallback simulado
   let buffer: Buffer;
   
@@ -125,7 +122,6 @@ export async function extractAndProcessContent(document: Document): Promise<Docu
       documentId: document.id,
       startupId: document.startupId,
       content: chunkText,
-      fundId: document.fundId, // ✅ CRÍTICO: Asegurar que fundId se propaga
       metadata: {
         source: document.name,
         documentType: document.type,
@@ -134,8 +130,6 @@ export async function extractAndProcessContent(document: Document): Promise<Docu
         storageProvider: metadata.storageProvider
       }
     };
-
-    console.log(`💾 Creando chunk ${i} con fundId: ${chunkRecord.fundId}`);
 
     try {
       // Generar embedding para el chunk usando el servicio de OpenAI

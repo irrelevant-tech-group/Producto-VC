@@ -18,38 +18,36 @@ export class InvestmentThesisService {
    * Construye el contexto de tesis de inversión para usar en prompts
    */
   async buildThesisContext(fundId: string): Promise<string> {
-    try {
-      const thesis = await this.getActiveThesis(fundId);
-      
-      if (!thesis) {
-        console.log(`No se encontró tesis activa para fund ${fundId}, usando default`);
-        return this.getDefaultThesisContext();
-      }
+    const thesis = await this.getActiveThesis(fundId);
+    
+    if (!thesis) {
+      return this.getDefaultThesisContext();
+    }
 
-      const verticals = (thesis.preferredVerticals as any[])
-        .map(v => `${v.vertical} (peso: ${v.weight}, criterios: ${v.criteria || 'estándar'})`)
-        .join(', ');
+    const verticals = (thesis.preferredVerticals as any[])
+      .map(v => `${v.vertical} (peso: ${v.weight}, criterios: ${v.criteria || 'estándar'})`)
+      .join(', ');
 
-      const stages = (thesis.preferredStages as any[])
-        .map(s => `${s.stage} (peso: ${s.weight}, ticket: $${s.ticketRange?.min || 'N/A'}-$${s.ticketRange?.max || 'N/A'})`)
-        .join(', ');
+    const stages = (thesis.preferredStages as any[])
+      .map(s => `${s.stage} (peso: ${s.weight}, ticket: $${s.ticketRange?.min || 'N/A'}-$${s.ticketRange?.max || 'N/A'})`)
+      .join(', ');
 
-      const geographic = (thesis.geographicFocus as any[])
-        .map(g => `${g.region} (peso: ${g.weight})`)
-        .join(', ');
+    const geographic = (thesis.geographicFocus as any[])
+      .map(g => `${g.region} (peso: ${g.weight})`)
+      .join(', ');
 
-      const criteria = thesis.evaluationCriteria as any;
-      const evaluationDetails = Object.entries(criteria)
-        .map(([key, value]: [string, any]) => 
-          `${key}: peso ${value.weight} - ${Object.entries(value.subcriteria || {})
-            .map(([subKey, subValue]: [string, any]) => `${subKey} (${subValue.weight || 'N/A'})`)
-            .join(', ')}`
-        ).join('\n  ');
+    const criteria = thesis.evaluationCriteria as any;
+    const evaluationDetails = Object.entries(criteria)
+      .map(([key, value]: [string, any]) => 
+        `${key}: peso ${value.weight} - ${Object.entries(value.subcriteria || {})
+          .map(([subKey, subValue]: [string, any]) => `${subKey} (${subValue.weight || 'N/A'})`)
+          .join(', ')}`
+      ).join('\n  ');
 
-      const redFlags = (thesis.redFlags as any[])?.join(', ') || 'No especificados';
-      const mustHaves = (thesis.mustHaves as any[])?.join(', ') || 'No especificados';
+    const redFlags = (thesis.redFlags as any[])?.join(', ') || 'No especificados';
+    const mustHaves = (thesis.mustHaves as any[])?.join(', ') || 'No especificados';
 
-      return `
+    return `
 TESIS DE INVERSIÓN ACTIVA - ${thesis.name} (v${thesis.version})
 
 FILOSOFÍA DE INVERSIÓN:
@@ -83,16 +81,11 @@ ${mustHaves}
 RETORNOS ESPERADOS:
 ${JSON.stringify(thesis.expectedReturns, null, 2)}
 
-Esta tesis debe guiar TODOS los análisis, evaluaciones y recomendaciones.
-      `;
-    } catch (error) {
-      console.error("Error building thesis context:", error);
-      return this.getDefaultThesisContext();
-    }
+Esta tesis debe guiar TODOS los análisis, evaluaciones y recomendaciones. Evalúa cada startup contra estos criterios específicos y proporciona justificaciones basadas en esta filosofía de inversión.
+    `;
   }
 
-  // MÉTODO CORREGIDO - ahora es público
-  getDefaultThesisContext(): string {
+  private getDefaultThesisContext(): string {
     return `
 TESIS DE INVERSIÓN POR DEFECTO - H20 Capital
 
@@ -122,15 +115,14 @@ MUST HAVES: Equipo técnico fuerte, mercado grande, alguna validación inicial
    * Construye contexto específico para análisis de alignment
    */
   async buildAlignmentContext(fundId: string): Promise<string> {
-    try {
-      const thesis = await this.getActiveThesis(fundId);
-      if (!thesis) return this.getDefaultThesisContext();
+    const thesis = await this.getActiveThesis(fundId);
+    if (!thesis) return this.getDefaultThesisContext();
 
-      const verticals = thesis.preferredVerticals as any[];
-      const stages = thesis.preferredStages as any[];
-      const criteria = thesis.evaluationCriteria as any;
+    const verticals = thesis.preferredVerticals as any[];
+    const stages = thesis.preferredStages as any[];
+    const criteria = thesis.evaluationCriteria as any;
 
-      return `
+    return `
 CRITERIOS DE ALINEAMIENTO ESPECÍFICOS:
 
 VERTICAL SCORING:
@@ -146,11 +138,7 @@ DECISION FACTORS:
 - Filosofía: ${thesis.investmentPhilosophy.substring(0, 200)}...
 - Red Flags: ${(thesis.redFlags as any[])?.join(', ') || 'No especificados'}
 - Must Haves: ${(thesis.mustHaves as any[])?.join(', ') || 'No especificados'}
-      `;
-    } catch (error) {
-      console.error("Error building alignment context:", error);
-      return this.getDefaultThesisContext();
-    }
+    `;
   }
 }
 

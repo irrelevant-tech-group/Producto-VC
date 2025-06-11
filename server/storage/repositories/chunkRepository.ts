@@ -15,6 +15,7 @@ export class ChunkRepository implements IChunkRepository {
   
   async createChunkWithEmbedding(insertChunk: InsertChunk, embedding?: number[]): Promise<Chunk> {
     try {
+      // Si ya se proporcionó un embedding, utilízalo
       if (embedding && Array.isArray(embedding)) {
         const [chunk] = await db.insert(chunks)
           .values({ ...insertChunk, embedding })
@@ -22,14 +23,16 @@ export class ChunkRepository implements IChunkRepository {
         return chunk;
       }
       
+      // Si no hay embedding, intentar generarlo a partir del contenido del chunk
       let vectorEmbedding: number[] | null = null;
       let attempts = 0;
       const maxAttempts = 3;
       
+      // Asegurar que tenemos un string válido para generar embedding
       const content = insertChunk.content;
       if (!content || typeof content !== 'string') {
-        console.error("Error: contenido del chunk no válido");
-        return this.createChunk(insertChunk);
+        console.error("Error: el contenido del chunk no es un string válido");
+        return this.createChunk(insertChunk); // Fallback a creación sin embedding
       }
       
       while (attempts < maxAttempts) {
@@ -38,7 +41,7 @@ export class ChunkRepository implements IChunkRepository {
           break;
         } catch (err) {
           attempts++;
-          console.error(`Error generando embedding (${attempts}/${maxAttempts}):`, err);
+          console.error(`Error generando embedding (intento ${attempts}/${maxAttempts}):`, err);
           
           if (attempts >= maxAttempts) {
             throw err;
@@ -69,25 +72,21 @@ export class ChunkRepository implements IChunkRepository {
     fundId?: string
   ): Promise<Chunk[]> {
     try {
-      console.log(`🔍 Búsqueda vectorial - StartupId: ${startupId || 'all'}, FundId: ${fundId || 'all'}, Limit: ${limit}`);
-      
       if (startupId && !isValidUUID(startupId)) {
         throw new Error("Invalid startupId format");
       }
       
       const embeddingStr = `[${embedding.join(',')}]`;
       
-      let whereConditions = ["embedding IS NOT NULL"];
+      let whereClause = "embedding IS NOT NULL";
       
       if (startupId) {
-        whereConditions.push(`startup_id = '${startupId}'`);
+        whereClause += ` AND startup_id = '${startupId}'`;
       }
       
       if (fundId) {
-        whereConditions.push(`fund_id = '${fundId}'`);
+        whereClause += ` AND fund_id = '${fundId}'`;
       }
-      
-      const whereClause = whereConditions.join(' AND ');
       
       const query = `
         SELECT *, 
@@ -99,14 +98,12 @@ export class ChunkRepository implements IChunkRepository {
       `;
       
       const result = await db.execute(sql.raw(query));
-      console.log(`✅ Búsqueda vectorial: ${result.rows.length} resultados`);
       
       return result.rows as Chunk[];
     } catch (error) {
-      console.error("❌ Error en búsqueda vectorial:", error);
+      console.error("Error en búsqueda vectorial:", error);
       
       if (startupId) {
-        console.log(`🔄 Fallback a búsqueda de texto`);
         return this.searchChunks("", startupId, limit, fundId);
       }
       return [];
@@ -120,62 +117,52 @@ export class ChunkRepository implements IChunkRepository {
     fundId?: string
   ): Promise<Chunk[]> {
     try {
-      console.log(`🔍 Búsqueda texto - Query: "${query}", StartupId: ${startupId || 'all'}, FundId: ${fundId || 'all'}`);
-      
-      // Si hay query específico, intentar vectorial primero
       if (query && query.trim() !== '') {
         try {
           const queryEmbedding = await generateEmbedding(query);
-          console.log(`🔄 Usando búsqueda vectorial para: "${query}"`);
           return await this.searchChunksByEmbedding(queryEmbedding, startupId, limit, fundId);
         } catch (embeddingError) {
-          console.error("❌ Error embedding, continuando con texto:", embeddingError);
+          console.error("Error en búsqueda vectorial, fallback a búsqueda de texto:", embeddingError);
         }
       }
       
-      // Construir condiciones WHERE
-      let whereConditions = ["1=1"];
-      
-      if (startupId && isValidUUID(startupId)) {
-        whereConditions.push(`startup_id = '${startupId}'`);
-      }
-      
-      if (fundId) {
-        whereConditions.push(`fund_id = '${fundId}'`);
-      }
-      
-      // Query básico sin filtro de texto
       if (!query || query.trim() === '') {
-        const basicQuery = `
-          SELECT * FROM chunks 
-          WHERE ${whereConditions.join(' AND ')}
-          ORDER BY id
-          LIMIT ${limit}
-        `;
+        let sqlQuery = `SELECT * FROM chunks WHERE 1=1`;
         
-        console.log(`📄 Query básico sin filtro de texto`);
-        const results = await db.execute(sql.raw(basicQuery));
-        console.log(`✅ Búsqueda básica: ${results.rows.length} resultados`);
+        if (startupId && isValidUUID(startupId)) {
+          sqlQuery += ` AND startup_id = '${startupId}'`;
+        }
+        
+        if (fundId) {
+          sqlQuery += ` AND fund_id = '${fundId}'`;
+        }
+        
+        sqlQuery += ` LIMIT ${limit}`;
+        
+        const results = await db.execute(sql.raw(sqlQuery));
         return results.rows as Chunk[];
       }
-      
-      // Búsqueda por keywords
+            
       const keywords = query
         .toLowerCase()
         .split(/\s+/)
-        .filter(word => word.length >= 2) // Reducir de 3 a 2 caracteres
-        .map(word => word.replace(/[^\w]/g, ''))
-        .slice(0, 10); // Limitar a 10 keywords
+        .filter(word => word.length >= 3)
+        .map(word => word.replace(/[^\w]/g, ''));
       
       if (keywords.length === 0) {
-        console.log(`⚠️ Sin keywords válidas, usando query básico`);
-        const basicQuery = `
-          SELECT * FROM chunks 
-          WHERE ${whereConditions.join(' AND ')}
-          LIMIT ${limit}
-        `;
+        let sqlQuery = `SELECT * FROM chunks WHERE 1=1`;
         
-        const results = await db.execute(sql.raw(basicQuery));
+        if (startupId && isValidUUID(startupId)) {
+          sqlQuery += ` AND startup_id = '${startupId}'`;
+        }
+        
+        if (fundId) {
+          sqlQuery += ` AND fund_id = '${fundId}'`;
+        }
+        
+        sqlQuery += ` LIMIT ${limit}`;
+        
+        const results = await db.execute(sql.raw(sqlQuery));
         return results.rows as Chunk[];
       }
       
@@ -185,41 +172,50 @@ export class ChunkRepository implements IChunkRepository {
       
       let sqlQuery = `
         SELECT * FROM chunks 
-        WHERE (${keywordConditions}) AND ${whereConditions.slice(1).join(' AND ')}
-        ORDER BY id
-        LIMIT ${limit}
+        WHERE (${keywordConditions})
       `;
       
-      console.log(`📄 Búsqueda por keywords: ${keywords.length} términos`);
-      let results = await db.execute(sql.raw(sqlQuery));
-      
-      // Si no hay resultados con keywords, intentar query más simple
-      if (results.rows.length === 0) {
-        console.log(`⚠️ Sin resultados con keywords, intentando query simple`);
-        const simpleQuery = `
-          SELECT * FROM chunks 
-          WHERE ${whereConditions.join(' AND ')}
-          LIMIT ${limit}
-        `;
-        
-        results = await db.execute(sql.raw(simpleQuery));
+      if (startupId && isValidUUID(startupId)) {
+        sqlQuery += ` AND startup_id = '${startupId}'`;
       }
       
-      console.log(`✅ Búsqueda texto completada: ${results.rows.length} resultados`);
+      if (fundId) {
+        sqlQuery += ` AND fund_id = '${fundId}'`;
+      }
+      
+      sqlQuery += ` LIMIT ${limit}`;
+      
+      let results = await db.execute(sql.raw(sqlQuery));
+      
+      if (results.rows.length === 0 && (startupId && isValidUUID(startupId))) {
+        sqlQuery = `SELECT * FROM chunks WHERE startup_id = '${startupId}'`;
+        
+        if (fundId) {
+          sqlQuery += ` AND fund_id = '${fundId}'`;
+        }
+        
+        sqlQuery += ` LIMIT ${limit}`;
+        
+        results = await db.execute(sql.raw(sqlQuery));
+      }
+      
       return results.rows as Chunk[];
-      
     } catch (error) {
-      console.error("❌ Error en búsqueda de texto:", error);
-      
-      // Fallback de emergencia
-      if (startupId && isValidUUID(startupId)) {
+      console.error("Error searching chunks:", error);
+      if (startupId) {
         try {
-          const emergencyQuery = `SELECT * FROM chunks WHERE startup_id = '${startupId}' LIMIT ${limit}`;
-          const results = await db.execute(sql.raw(emergencyQuery));
-          console.log(`🆘 Fallback emergencia: ${results.rows.length} resultados`);
+          let sqlQuery = `SELECT * FROM chunks WHERE startup_id = '${startupId}'`;
+          
+          if (fundId) {
+            sqlQuery += ` AND fund_id = '${fundId}'`;
+          }
+          
+          sqlQuery += ` LIMIT ${limit}`;
+          
+          const results = await db.execute(sql.raw(sqlQuery));
           return results.rows as Chunk[];
         } catch (err) {
-          console.error("❌ Error en fallback de emergencia:", err);
+          console.error("Error in fallback chunk search:", err);
           return [];
         }
       }

@@ -62,7 +62,6 @@ router.get("/:id", requireAuth, loadUserFromDb, async (req, res) => {
       processingStatus: document.processingStatus || 'pending',
       metadata: document.metadata || {},
       description: document.metadata?.description || '',
-      fundId: document.fundId, // ✅ Incluir fundId en respuesta
     };
     
     res.json(response);
@@ -106,8 +105,6 @@ router.post(
         return res.status(403).json({ message: "No access to this startup" });
       }
 
-      console.log(`📤 Subiendo documento para startup: ${startup.name} (FundId: ${startup.fundId})`);
-
       // Generar nombre único para el archivo
       const fileExt = path.extname(req.file.originalname);
       const fileName = `${Date.now()}-${uuidv4()}${fileExt}`;
@@ -145,7 +142,7 @@ router.post(
         storageProvider: fileUrl.startsWith('https://storage.googleapis.com/') ? 'google-cloud-storage' : 'local'
       };
 
-      // Crear el documento en la base de datos CON FUND_ID
+      // Crear el documento en la base de datos
       const document = await storage.createDocument({
         startupId,
         name: name || req.file.originalname,
@@ -153,11 +150,8 @@ router.post(
         fileUrl,
         fileType: req.file.mimetype,
         uploadedBy: req.user?.id || req.body.userId,
-        fundId: startup.fundId, // ✅ CRÍTICO: Asegurar que fundId se asigna al documento
         metadata
       });
-
-      console.log(`📋 Documento creado con ID: ${document.id}, FundId: ${document.fundId}`);
 
       // Registrar actividad
       await storage.createActivity({
@@ -171,7 +165,7 @@ router.post(
           fileSize: req.file.size,
           storageProvider: metadata.storageProvider
         },
-        fundId: startup.fundId // ✅ También asignar fundId a la actividad
+        fundId: startup.fundId
       });
 
       // Iniciar procesamiento en segundo plano
