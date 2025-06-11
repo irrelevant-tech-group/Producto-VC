@@ -17,6 +17,8 @@ import MemoDetail from './pages/memos/[id]';
 import AiAssistant from './pages/ai-assistant/index';
 import NotFound from './pages/not-found';
 import SettingsPage from './pages/settings/index';
+import DueDiligenceSettings from './pages/settings/DueDiligenceSettings';
+import OrganizationPage from './pages/organization';
 
 // Auth Pages
 import SignInPage from './components/auth/SignInPage';
@@ -172,15 +174,37 @@ function App() {
             </Route>
 
             <Route path="/settings">
-  <SignedIn>
-    <MainLayout>
-      <SettingsPage />
-    </MainLayout>
-  </SignedIn>
-  <SignedOut>
-    <RedirectToSignIn />
-  </SignedOut>
-</Route>
+              <SignedIn>
+                <MainLayout>
+                  <SettingsPage />
+                </MainLayout>
+              </SignedIn>
+              <SignedOut>
+                <RedirectToSignIn />
+              </SignedOut>
+            </Route>
+
+            <Route path="/settings/due-diligence">
+              <SignedIn>
+                <MainLayout>
+                  <DueDiligenceSettings />
+                </MainLayout>
+              </SignedIn>
+              <SignedOut>
+                <RedirectToSignIn />
+              </SignedOut>
+            </Route>
+
+            <Route path="/organization">
+              <SignedIn>
+                <MainLayout>
+                  <OrganizationPage />
+                </MainLayout>
+              </SignedIn>
+              <SignedOut>
+                <RedirectToSignIn />
+              </SignedOut>
+            </Route>
             
             {/* 404 route */}
             <Route>

@@ -21,7 +21,7 @@ interface ThesisStagesProps {
   onUpdate: (stages: Stage[]) => void;
 }
 
-const stageOptions = ["pre-seed", "seed", "series-a"];
+const stageOptions = ["First Approach", "Due Diligence", "Post inversion"];
 
 export const ThesisStages = ({ stages, onUpdate }: ThesisStagesProps) => {
   const updateStageWeight = (index: number, weight: number) => {
@@ -51,7 +51,7 @@ export const ThesisStages = ({ stages, onUpdate }: ThesisStagesProps) => {
   };
 
   const addStage = () => {
-    onUpdate([...stages, { stage: "seed", weight: 0.1 }]);
+    onUpdate([...stages, { stage: "First Approach", weight: 0.1 }]);
   };
 
   return (

@@ -11,6 +11,7 @@ import { ActivityRepository } from './repositories/activityRepository';
 import { DashboardRepository } from './repositories/dashboardRepository';
 import { AiRepository } from './repositories/aiRepository';
 import { InvestmentThesisRepository } from './repositories/investmentThesisRepository';
+import { DueDiligenceRepository } from './repositories/dueDiligenceRepository';
 
 export * from './interfaces';
 export * from './types';
@@ -29,6 +30,7 @@ class DatabaseStorage implements IStorage {
   private dashboardRepository: DashboardRepository;
   private aiRepository: AiRepository;
   private investmentThesisRepository: InvestmentThesisRepository;
+  private dueDiligenceRepository: DueDiligenceRepository;
   
   constructor() {
     // Iniciar repositorios con sus dependencias
@@ -42,6 +44,7 @@ class DatabaseStorage implements IStorage {
     this.activityRepository = new ActivityRepository();
     this.aiRepository = new AiRepository();
     this.investmentThesisRepository = new InvestmentThesisRepository();
+    this.dueDiligenceRepository = new DueDiligenceRepository();
   }
   
   // User operations
@@ -112,6 +115,15 @@ class DatabaseStorage implements IStorage {
   createThesis = (thesis: any) => this.investmentThesisRepository.createThesis(thesis);
   updateThesis = (id: string, data: any) => this.investmentThesisRepository.updateThesis(id, data);
   activateThesis = (id: string, fundId: string) => this.investmentThesisRepository.activateThesis(id, fundId);
+
+  // Due Diligence Template operations
+  getActiveDDTemplate = (fundId: string) => this.dueDiligenceRepository.getActiveTemplate(fundId);
+  getDDTemplatesByFund = (fundId: string) => this.dueDiligenceRepository.getTemplatesByFund(fundId);
+  createDDTemplate = (template: any) => this.dueDiligenceRepository.createTemplate(template);
+  updateDDTemplate = (id: string, data: any) => this.dueDiligenceRepository.updateTemplate(id, data);
+  activateDDTemplate = (id: string, fundId: string) => this.dueDiligenceRepository.activateTemplate(id, fundId);
+  deleteDDTemplate = (id: string, fundId: string) => this.dueDiligenceRepository.deleteTemplate(id, fundId);
+  getDefaultDDCategories = () => this.dueDiligenceRepository.getDefaultCategories();
 }
 
 // Exportar una instancia única

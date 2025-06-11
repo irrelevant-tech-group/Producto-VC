@@ -35,10 +35,13 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByClerkId(clerkId: string): Promise<User | undefined>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
   getUsersByFund(fundId: string): Promise<User[]>;
+
+
   
   // Fund operations
   getFund(id: string): Promise<Fund | undefined>;
@@ -137,7 +140,13 @@ export class DatabaseStorage implements IStorage {
       .orderBy(users.name);
   }
   
-  // Fund operations
+
+
+  async getUsersByFund(fundId: string): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.fundId, fundId));
+  }
+  
+
   async getFund(id: string): Promise<Fund | undefined> {
     const [fund] = await db.select().from(funds).where(eq(funds.id, id));
     return fund;
@@ -753,9 +762,61 @@ export class DatabaseStorage implements IStorage {
     }
   }
      
+
   async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
     try {
       const docs = await this.getDocumentsByStartup(startupId);
+
+// Due Diligence Progress (sin cambios)
+async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
+  try {
+    // Obtener documentos del startup
+    const docs = await this.getDocumentsByStartup(startupId);
+    
+    // Lista configurable de items requeridos por categoría
+    const dueDiligenceCategories = {
+      'pitch-deck': { 
+        required: 1, 
+        importance: 'high',
+        description: 'Company presentation and vision'
+      },
+      'financials': { 
+        required: 3, 
+        importance: 'high',
+        description: 'Financial statements, projections, unit economics'
+      },
+      'legal': { 
+        required: 4, 
+        importance: 'medium',
+        description: 'Corporate structure, IP, contracts, compliance'
+      },
+      'tech': { 
+        required: 2, 
+        importance: 'high',
+        description: 'Technical documentation, architecture, security'
+      },
+      'market': { 
+        required: 2, 
+        importance: 'medium',
+        description: 'Market research, competitive analysis'
+      },
+      'Additional Documents': { 
+        required: 0, 
+        importance: 'low',
+        description: 'Additional Documents'
+      }
+    };
+ 
+    // Contar documentos por categoría
+    const categoriesStatus: any = {};
+    let totalRequired = 0;
+    let totalCompleted = 0;
+ 
+    Object.entries(dueDiligenceCategories).forEach(([categoryKey, config]) => {
+      const categoryDocs = docs.filter(doc => doc.type === categoryKey);
+      const uploadedCount = categoryDocs.length;
+      const processedCount = categoryDocs.filter(doc => doc.processingStatus === 'completed').length;
+
       
       const dueDiligenceCategories = {
         'pitch-deck': { 

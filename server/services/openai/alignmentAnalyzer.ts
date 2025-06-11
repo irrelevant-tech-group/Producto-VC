@@ -83,9 +83,9 @@ function generateFallbackAlignmentScore(startup: any, documents: any[], chunks: 
   const verticalScore = preferredVerticals.includes(startup.vertical.toLowerCase()) ? 0.20 : 0.05;
   
   const stageScores: Record<string, number> = {
-    "pre-seed": 0.20,
-    "seed": 0.20,
-    "series-a": 0.05,
+    "first approach": 0.20,
+    "due diligence": 0.20,
+    "post inversion": 0.05,
   };
   const stageScore = stageScores[startup.stage.toLowerCase()] || 0;
   
@@ -162,7 +162,7 @@ function generateFallbackAlignmentScore(startup: any, documents: any[], chunks: 
           preferredVerticals.includes(startup.vertical.toLowerCase()) ? 
             `El vertical ${startup.vertical} está alineado con la tesis de inversión` : 
             "Startup con documentación disponible para análisis",
-          startup.stage.toLowerCase() in ["pre-seed", "seed"] ?
+          startup.stage.toLowerCase() in ["first approach", "due diligence"] ?
             `La etapa ${startup.stage} está alineada con la tesis de inversión` :
             "Startup con potencial de crecimiento"
         ],
@@ -208,7 +208,7 @@ function generateFallbackAlignmentScore(startup: any, documents: any[], chunks: 
         preferredVerticals.includes(startup.vertical.toLowerCase()) ? 
           `El vertical ${startup.vertical} está alineado con la tesis de inversión` : 
           "Startup con documentación disponible para análisis",
-        startup.stage.toLowerCase() in ["pre-seed", "seed"] ?
+        startup.stage.toLowerCase() in ["first approach", "due diligence"] ?
           `La etapa ${startup.stage} está alineada con la tesis de inversión` :
           "Startup con potencial de crecimiento"
       ],
