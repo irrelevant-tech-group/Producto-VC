@@ -15,46 +15,153 @@ export async function processQueryWithThesis(
   const { startupId, question, includeSourceDocuments = true } = request;
   
   try {
+    console.log(`🔍 Procesando consulta: "${question}"`);
+    console.log(`📍 StartupId: ${startupId}, FundId: ${fundId}`);
+    
     // 1. Obtener contexto de la tesis de inversión
-    const thesisContext = fundId 
-      ? await investmentThesisService.buildThesisContext(fundId)
-      : investmentThesisService.getDefaultThesisContext();
+    let thesisContext = "";
+    try {
+      if (fundId) {
+        thesisContext = await investmentThesisService.buildThesisContext(fundId);
+      }
+    } catch (thesisError) {
+      console.warn("Error obteniendo tesis:", thesisError);
+      thesisContext = "";
+    }
 
     // 2. Generar embedding y buscar chunks
     let questionEmbedding: number[] | null = null;
     try {
       questionEmbedding = await generateEmbedding(question);
+      console.log(`✅ Embedding generado correctamente`);
     } catch (embeddingError) {
-      console.error("Error al generar embedding:", embeddingError);
+      console.error("❌ Error al generar embedding:", embeddingError);
     }
 
+    // 3. Determinar parámetros de búsqueda
     const effectiveStartupId = startupId === "all" ? undefined : startupId;
+    console.log(`🎯 Búsqueda - StartupId: ${effectiveStartupId}, FundId: ${fundId}`);
+    
     let relevantChunks: any[] = [];
     
+    // 4. Búsqueda de chunks con múltiples intentos
     if (questionEmbedding) {
+      console.log(`🔍 Intentando búsqueda vectorial...`);
       relevantChunks = await storage.searchChunksByEmbedding(
         questionEmbedding,
         effectiveStartupId,
-        10,
+        15,
         fundId
       );
-    } else {
+      console.log(`📊 Búsqueda vectorial: ${relevantChunks.length} chunks`);
+    } 
+    
+    if (relevantChunks.length === 0) {
+      console.log(`🔍 Fallback a búsqueda de texto...`);
       relevantChunks = await storage.searchChunks(
         question,
         effectiveStartupId,
-        10,
+        15,
         fundId
       );
+      console.log(`📊 Búsqueda de texto: ${relevantChunks.length} chunks`);
     }
 
+    // 5. Si no hay chunks, intentar búsquedas más amplias
     if (relevantChunks.length === 0) {
+      console.log(`⚠️ Sin resultados, ampliando búsqueda...`);
+      
+      // Intentar sin fundId
+      if (fundId) {
+        console.log(`🔄 Intentando sin fundId...`);
+        if (questionEmbedding) {
+          relevantChunks = await storage.searchChunksByEmbedding(
+            questionEmbedding,
+            effectiveStartupId,
+            15,
+            undefined
+          );
+        } else {
+          relevantChunks = await storage.searchChunks(
+            question,
+            effectiveStartupId,
+            15,
+            undefined
+          );
+        }
+        console.log(`📊 Sin fundId: ${relevantChunks.length} chunks`);
+      }
+      
+      // Intentar sin startupId
+      if (relevantChunks.length === 0 && effectiveStartupId) {
+        console.log(`🔄 Intentando sin startupId...`);
+        if (questionEmbedding) {
+          relevantChunks = await storage.searchChunksByEmbedding(
+            questionEmbedding,
+            undefined,
+            15,
+            fundId
+          );
+        } else {
+          relevantChunks = await storage.searchChunks(
+            question,
+            undefined,
+            15,
+            fundId
+          );
+        }
+        console.log(`📊 Sin startupId: ${relevantChunks.length} chunks`);
+      }
+      
+      // Búsqueda completamente abierta
+      if (relevantChunks.length === 0) {
+        console.log(`🔄 Búsqueda completamente abierta...`);
+        relevantChunks = await storage.searchChunks(
+          "",
+          undefined,
+          15,
+          undefined
+        );
+        console.log(`📊 Búsqueda abierta: ${relevantChunks.length} chunks`);
+      }
+    }
+
+    // 6. Verificar resultados finales
+    if (relevantChunks.length === 0) {
+      console.log(`❌ No se encontraron chunks`);
+      
+      // Debugging: verificar si hay chunks en la BD
+      try {
+        const totalChunks = await storage.searchChunks("", undefined, 3, undefined);
+        console.log(`🔍 DEBUGGING: Total chunks en BD: ${totalChunks.length}`);
+        
+        if (totalChunks.length > 0) {
+          console.log(`📄 Ejemplo chunk:`, {
+            id: totalChunks[0].id?.substring(0, 8),
+            startupId: totalChunks[0].startupId?.substring(0, 8),
+            fundId: totalChunks[0].fundId?.substring(0, 8) || 'null',
+            contentPreview: totalChunks[0].content?.substring(0, 100) + "..."
+          });
+        }
+      } catch (debugError) {
+        console.error(`❌ Error debugging:`, debugError);
+      }
+      
       return {
-        answer: "No tengo suficiente información para responder esa pregunta basándome en los documentos disponibles.",
+        answer: `No encontré información específica para responder "${question}". Esto puede deberse a:
+
+1. Los documentos aún se están procesando
+2. No hay documentos subidos para esta consulta
+3. Los documentos no contienen información relevante
+
+Por favor, verifica que haya documentos procesados o reformula la pregunta.`,
         sources: []
       };
     }
 
-    // 3. Preparar contexto enriquecido
+    console.log(`✅ Usando ${relevantChunks.length} chunks para generar respuesta`);
+
+    // 7. Preparar contexto
     const documentContext = relevantChunks
       .map((chunk, index) => {
         const sourceName = chunk.metadata?.source || "Documento sin nombre";
@@ -66,34 +173,38 @@ export async function processQueryWithThesis(
       })
       .join("\n\n");
 
-    // 4. Crear prompt enriquecido con la tesis
+    // 8. Generar respuesta
+    const systemPrompt = thesisContext ? `
+Eres un asistente analista de inversiones especializado que debe evaluar basándote en:
+
+TESIS DE INVERSIÓN DEL FONDO:
+${thesisContext}
+
+INSTRUCCIONES:
+- Evalúa contra los criterios específicos de la tesis
+- Cita fuentes usando [FUENTE X]
+- Proporciona análisis balanceado
+- Relaciona con criterios de evaluación de la tesis
+- Destaca red flags y must-haves de la tesis
+
+Responde basándote ÚNICAMENTE en el contexto proporcionado.
+    ` : `
+Eres un asistente analista de inversiones. Responde basándote ÚNICAMENTE en el contexto proporcionado.
+
+INSTRUCCIONES:
+- Cita fuentes usando [FUENTE X]
+- Proporciona análisis profesional
+- Si falta información, indícalo claramente
+
+Responde de manera profesional basándote en el contexto.
+    `;
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: `
-Eres un asistente analista de inversiones especializado que debe evaluar y responder basándote en:
-
-1. LA TESIS DE INVERSIÓN DEL FONDO (CRÍTICO - debe guiar todas tus respuestas):
-${thesisContext}
-
-2. INSTRUCCIONES DE ANÁLISIS:
-- SIEMPRE evalúa contra los criterios específicos de la tesis de inversión
-- Cita fuentes usando [FUENTE X] donde X es el número de la fuente
-- Proporciona análisis balanceados que consideren tanto oportunidades como riesgos
-- Relaciona tu análisis con los criterios de evaluación definidos en la tesis
-- Si detectas red flags de la tesis, mencionálos específicamente
-- Si encuentras must-haves de la tesis, destácalos
-
-3. ESTILO DE RESPUESTA:
-- Profesional pero accesible
-- Orientado a decisiones de inversión
-- Basado en datos cuando estén disponibles
-- Objetivo y equilibrado
-
-Responde ÚNICAMENTE basándote en la información proporcionada en el contexto y siempre desde la perspectiva de la tesis de inversión del fondo.
-          `
+          content: systemPrompt
         },
         {
           role: "user",
@@ -103,7 +214,7 @@ ${documentContext}
 
 PREGUNTA: ${question}
 
-Por favor, responde basándote en la tesis de inversión y el contexto de documentos proporcionado.
+Responde basándote en la información proporcionada.
           `
         }
       ],
@@ -113,11 +224,11 @@ Por favor, responde basándote en la tesis de inversión y el contexto de docume
 
     const answer = response.choices?.[0]?.message?.content || "No se pudo generar una respuesta.";
 
-    // 5. Preparar fuentes
+    // 9. Preparar fuentes
     let sources: AiQueryResponse['sources'] = [];
     if (includeSourceDocuments) {
       sources = await Promise.all(
-        relevantChunks.map(async (chunk, index) => {
+        relevantChunks.slice(0, 8).map(async (chunk, index) => {
           const document = await storage.getDocument(chunk.documentId);
           return {
             documentId: chunk.documentId,
@@ -136,10 +247,11 @@ Por favor, responde basándote en la tesis de inversión y el contexto de docume
       );
     }
 
+    console.log(`📤 Respuesta completada con ${sources.length} fuentes`);
     return { answer, sources };
 
   } catch (error) {
-    console.error("Error al procesar consulta con tesis:", error);
+    console.error("❌ Error procesando consulta:", error);
     throw new Error("No se pudo procesar tu consulta. Por favor, intenta de nuevo más tarde.");
   }
 }
