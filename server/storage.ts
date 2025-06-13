@@ -7,7 +7,8 @@ import {
   chunks, Chunk, InsertChunk,
   memos, Memo, InsertMemo,
   activities, Activity, InsertActivity,
-  funds, Fund, InsertFund
+  funds, Fund, InsertFund,
+  aiQueries, AiQuery, InsertAiQuery
 } from "@shared/schema";
 import { 
   DashboardMetrics, 
@@ -19,32 +20,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { generateEmbedding } from "./services/openai/index";
 
-
-// Nuevo tipo para consultas AI
-interface AiQuery {
-  id: string;
-  question: string;
-  answer: string;
-  sources: any[];
-  startupId?: string;
-  userId?: number;
-  processingTimeMs: number;
-  metadata?: Record<string, any>;
-  createdAt: Date;
-}
-
-interface InsertAiQuery {
-  question: string;
-  answer: string;
-  sources: any[];
-  startupId?: string;
-  userId?: number;
-  processingTimeMs: number;
-  metadata?: Record<string, any>;
-  fundId?: string;
-}
-
-// Nuevo tipo para historial de consultas
+// Tipo para historial de consultas
 interface QueryHistoryOptions {
   limit?: number;
   startupId?: string;
@@ -64,7 +40,6 @@ export interface IStorage {
   getUserByClerkId(clerkId: string): Promise<User | undefined>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
   getUsersByFund(fundId: string): Promise<User[]>;
-
   
   // Fund operations
   getFund(id: string): Promise<Fund | undefined>;
@@ -74,7 +49,7 @@ export interface IStorage {
   getStartupsByFund(fundId: string): Promise<Startup[]>;
   getFunds(): Promise<Fund[]>;
   
-  // Startup operations - ACTUALIZADO
+  // Startup operations
   getStartup(id: string): Promise<Startup | undefined>;
   getStartups(): Promise<Startup[]>;
   createStartup(startup: InsertStartup): Promise<Startup>;
@@ -117,7 +92,7 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User operations (sin cambios)
+  // User operations
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -133,7 +108,6 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
   
-  // Métodos para usuarios con Clerk (sin cambios)
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
@@ -155,10 +129,13 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated;
   }
-  
 
   async getUsersByFund(fundId: string): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.fundId, fundId));
+    return await db
+      .select()
+      .from(users)
+      .where(eq(users.fundId, fundId))
+      .orderBy(users.name);
   }
   
   async getFund(id: string): Promise<Fund | undefined> {
@@ -200,7 +177,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(startups.createdAt));
   }
  
-  // Startup operations - ACTUALIZADOS para nuevos campos
+  // Startup operations
   async getStartup(id: string): Promise<Startup | undefined> {
     const [startup] = await db.select().from(startups).where(eq(startups.id, id));
     return startup;
@@ -210,22 +187,14 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(startups).orderBy(desc(startups.createdAt));
   }
  
-  // ACTUALIZADO - Mapear nuevos campos al INSERT
   async createStartup(insertStartup: InsertStartup): Promise<Startup> {
-    // Preparar datos para inserción, manejando conversiones necesarias
     const insertData = {
       ...insertStartup,
-      // Convertir amountSought a string para numeric column si es necesario
       amountSought: insertStartup.amountSought ? insertStartup.amountSought.toString() : null,
-      // Convertir valuation a string para numeric column si es necesario
       valuation: insertStartup.valuation ? insertStartup.valuation.toString() : null,
-      // Convertir investmentAmount a string para numeric column si es necesario
       investmentAmount: insertStartup.investmentAmount ? insertStartup.investmentAmount.toString() : null,
-      // Asegurar que primaryContact es un objeto JSON válido
       primaryContact: insertStartup.primaryContact ? insertStartup.primaryContact : null,
-      // Convertir firstContactDate string a Date object si es necesario
       firstContactDate: insertStartup.firstContactDate ? new Date(insertStartup.firstContactDate) : null,
-      // Convertir investmentDate string a Date object si es necesario
       investmentDate: insertStartup.investmentDate ? new Date(insertStartup.investmentDate) : null
     };
  
@@ -234,10 +203,8 @@ export class DatabaseStorage implements IStorage {
   }
  
   async updateStartup(id: string, data: Partial<Startup>): Promise<Startup | undefined> {
-    // Preparar datos para actualización
     const updateData = { ...data };
     
-    // Convertir campos numéricos a string si están presentes
     if (updateData.amountSought !== undefined) {
       updateData.amountSought = updateData.amountSought ? updateData.amountSought.toString() : null;
     }
@@ -248,7 +215,6 @@ export class DatabaseStorage implements IStorage {
       updateData.investmentAmount = updateData.investmentAmount ? updateData.investmentAmount.toString() : null;
     }
     
-    // Convertir fechas si están presentes
     if (updateData.firstContactDate && typeof updateData.firstContactDate === 'string') {
       updateData.firstContactDate = new Date(updateData.firstContactDate);
     }
@@ -267,10 +233,8 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
  
-  // ACTUALIZADO - Incluir nuevos campos en summaries
   async getStartupSummaries(fundId?: string): Promise<StartupSummary[]> {
     try {
-      // Construir la consulta base
       let query = db
         .select({
           startup: startups,
@@ -279,17 +243,14 @@ export class DatabaseStorage implements IStorage {
         .from(startups)
         .leftJoin(documents, eq(startups.id, documents.startupId));
       
-      // Añadir filtro por fundId si existe
       if (fundId) {
         query = query.where(eq(startups.fundId, fundId));
       }
       
-      // Completar la consulta con agrupación y ordenamiento
       const startupsWithDocs = await query
         .groupBy(startups.id)
         .orderBy(desc(startups.createdAt));
- 
-      // Obtener progreso de due diligence para cada startup
+
       const summaries: StartupSummary[] = [];
       
       for (const { startup, docCount } of startupsWithDocs) {
@@ -301,7 +262,7 @@ export class DatabaseStorage implements IStorage {
         } catch (error) {
           console.error(`Error getting due diligence progress for startup ${startup.id}:`, error);
         }
- 
+
         summaries.push({
           id: startup.id,
           name: startup.name,
@@ -323,15 +284,13 @@ export class DatabaseStorage implements IStorage {
           decisionReason: startup.decisionReason || null,
         });
       }
- 
+
       return summaries;
     } catch (error) {
       console.error("Error in getStartupSummaries:", error);
       
-      // Fallback: obtener datos básicos sin conteos adicionales
       let query = db.select().from(startups);
       
-      // Añadir filtro por fundId si existe
       if (fundId) {
         query = query.where(eq(startups.fundId, fundId));
       }
@@ -361,10 +320,8 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // NUEVO MÉTODO para estadísticas de inversión
   async getInvestmentStats(fundId?: string): Promise<InvestmentStats> {
     try {
-      // Construir consulta base
       let baseQuery = db.select().from(startups);
       
       if (fundId) {
@@ -373,17 +330,14 @@ export class DatabaseStorage implements IStorage {
       
       const allStartups = await baseQuery;
       
-      // Filtrar solo las startups con inversión
       const investedStartups = allStartups.filter(s => s.status === 'invested' && s.investmentAmount);
       
-      // Calcular estadísticas básicas
       const totalInvestments = investedStartups.length;
       const totalAmountInvested = investedStartups.reduce((sum, s) => 
         sum + (s.investmentAmount ? Number(s.investmentAmount) : 0), 0);
       const averageInvestment = totalInvestments > 0 ? totalAmountInvested / totalInvestments : 0;
       const portfolioCompanies = investedStartups.length;
       
-      // Estadísticas por etapa
       const byStage: Record<string, { count: number; totalAmount: number }> = {};
       investedStartups.forEach(startup => {
         if (!byStage[startup.stage]) {
@@ -393,7 +347,6 @@ export class DatabaseStorage implements IStorage {
         byStage[startup.stage].totalAmount += startup.investmentAmount ? Number(startup.investmentAmount) : 0;
       });
       
-      // Estadísticas por vertical
       const byVertical: Record<string, { count: number; totalAmount: number }> = {};
       investedStartups.forEach(startup => {
         if (!byVertical[startup.vertical]) {
@@ -403,7 +356,6 @@ export class DatabaseStorage implements IStorage {
         byVertical[startup.vertical].totalAmount += startup.investmentAmount ? Number(startup.investmentAmount) : 0;
       });
       
-      // Estadísticas por status
       const byStatus = {
         active: allStartups.filter(s => s.status === 'active').length,
         invested: allStartups.filter(s => s.status === 'invested').length,
@@ -411,7 +363,7 @@ export class DatabaseStorage implements IStorage {
         declined: allStartups.filter(s => s.status === 'declined').length,
         archived: allStartups.filter(s => s.status === 'archived').length,
       };
-      
+     
       return {
         totalInvestments,
         totalAmountInvested,
@@ -420,7 +372,7 @@ export class DatabaseStorage implements IStorage {
         byStage,
         byVertical,
         byStatus,
-        currency: 'USD' // Podríamos hacerlo dinámico basado en el fondo
+        currency: 'USD'
       };
     } catch (error) {
       console.error("Error getting investment stats:", error);
@@ -443,7 +395,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
  
-  // Document operations (sin cambios)
+  // Document operations
   async getDocument(id: string): Promise<Document | undefined> {
     const [document] = await db.select().from(documents).where(eq(documents.id, id));
     return document;
@@ -473,7 +425,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
  
-  // Chunk operations (sin cambios)
+  // Chunk operations
   async createChunk(insertChunk: InsertChunk): Promise<Chunk> {
     const [chunk] = await db.insert(chunks).values(insertChunk).returning();
     return chunk;
@@ -481,7 +433,6 @@ export class DatabaseStorage implements IStorage {
   
   async createChunkWithEmbedding(insertChunk: InsertChunk, embedding?: number[]): Promise<Chunk> {
     try {
-      // Si ya se proporcionó un embedding, utilízalo
       if (embedding && Array.isArray(embedding)) {
         const [chunk] = await db.insert(chunks)
           .values({ ...insertChunk, embedding })
@@ -489,16 +440,14 @@ export class DatabaseStorage implements IStorage {
         return chunk;
       }
       
-      // Si no hay embedding, intentar generarlo a partir del contenido del chunk
       let vectorEmbedding: number[] | null = null;
       let attempts = 0;
       const maxAttempts = 3;
       
-      // Asegurar que tenemos un string válido para generar embedding
       const content = insertChunk.content;
       if (!content || typeof content !== 'string') {
         console.error("Error: el contenido del chunk no es un string válido");
-        return this.createChunk(insertChunk); // Fallback a creación sin embedding
+        return this.createChunk(insertChunk);
       }
       
       while (attempts < maxAttempts) {
@@ -531,7 +480,6 @@ export class DatabaseStorage implements IStorage {
     }
   }
   
-  // Búsqueda vectorial (sin cambios)
   async searchChunksByEmbedding(embedding: number[], startupId?: string, limit = 5, fundId?: string): Promise<Chunk[]> {
     try {
       const isValidUUID = (id: string) => {
@@ -576,7 +524,6 @@ export class DatabaseStorage implements IStorage {
     }
   }
  
-  // Búsqueda de texto (sin cambios)
   async searchChunks(query: string, startupId?: string, limit = 5, fundId?: string): Promise<Chunk[]> {
     try {
       if (query && query.trim() !== '') {
@@ -689,7 +636,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
        
-  // Memo operations (sin cambios)
+  // Memo operations
   async getMemo(id: string): Promise<Memo | undefined> {
     const [memo] = await db.select().from(memos).where(eq(memos.id, id));
     return memo;
@@ -720,7 +667,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
        
-  // Activity operations (sin cambios)
+  // Activity operations
   async getRecentActivities(limit = 10, fundId?: string): Promise<ActivityItem[]> {
     let query = db.select().from(activities);
     
@@ -754,365 +701,295 @@ export class DatabaseStorage implements IStorage {
     return activity;
   }
        
-  // Dashboard operations (sin cambios)
+  // Dashboard operations
   async getDashboardMetrics(fundId?: string): Promise<DashboardMetrics> {
     try {
-      // Base de las consultas
       let startupQuery = db.select({ count: sql<number>`count(*)::int` }).from(startups);
       let activeDDQuery = db.select({ count: sql<number>`count(*)::int` }).from(startups).where(eq(startups.status, 'active'));
       let pendingMemosQuery = db.select({ count: sql<number>`count(*)::int` }).from(memos).where(eq(memos.status, 'draft'));
       let docsProcessedQuery = db.select({ count: sql<number>`count(*)::int` }).from(documents).where(eq(documents.processingStatus, 'completed'));
       
-      // Añadir filtro por fundId si existe
-     if (fundId) {
-      startupQuery = startupQuery.where(eq(startups.fundId, fundId));
-      activeDDQuery = activeDDQuery.where(eq(startups.fundId, fundId));
-      pendingMemosQuery = pendingMemosQuery.where(eq(memos.fundId, fundId));
-      docsProcessedQuery = docsProcessedQuery.where(eq(documents.fundId, fundId));
-    }
-    
-    // Ejecutar consultas
-    const totalStartupsResult = await startupQuery;
-    const totalStartups = totalStartupsResult[0]?.count || 0;
-    
-    const activeDueDiligenceResult = await activeDDQuery;
-    const activeDueDiligence = activeDueDiligenceResult[0]?.count || 0;
-    
-    const pendingMemosResult = await pendingMemosQuery;
-    const pendingMemos = pendingMemosResult[0]?.count || 0;
-    
-    const docsProcessedResult = await docsProcessedQuery;
-    const docsProcessed = docsProcessedResult[0]?.count || 0;
-    
-    // Lógica para las tendencias permanece igual o podría ajustarse para considerar fundId
-    return {
-      totalStartups,
-      activeDueDiligence,
-      pendingMemos, 
-      docsProcessed,
-      trendStartups: 4,
-      trendDD: 2,
-      trendMemos: -1,
-      trendDocs: 12,
-    };
-  } catch (error) {
-    console.error("Error fetching dashboard metrics:", error);
-    return {
-      totalStartups: 0,
-      activeDueDiligence: 0,
-      pendingMemos: 0,
-      docsProcessed: 0,
-      trendStartups: 0,
-      trendDD: 0,
-      trendMemos: 0,
-      trendDocs: 0,
-    };
-  }
-}
-     
-// Due Diligence Progress (sin cambios)
-async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
-  try {
-    // Obtener documentos del startup
-    const docs = await this.getDocumentsByStartup(startupId);
-    
-    // Lista configurable de items requeridos por categoría
-    const dueDiligenceCategories = {
-      'pitch-deck': { 
-        required: 1, 
-        importance: 'high',
-        description: 'Company presentation and vision'
-      },
-      'financials': { 
-        required: 3, 
-        importance: 'high',
-        description: 'Financial statements, projections, unit economics'
-      },
-      'legal': { 
-        required: 4, 
-        importance: 'medium',
-        description: 'Corporate structure, IP, contracts, compliance'
-      },
-      'tech': { 
-        required: 2, 
-        importance: 'high',
-        description: 'Technical documentation, architecture, security'
-      },
-      'market': { 
-        required: 2, 
-        importance: 'medium',
-        description: 'Market research, competitive analysis'
-      },
-      'Additional Documents': { 
-        required: 0, 
-        importance: 'low',
-        description: 'Additional Documents'
+      if (fundId) {
+        startupQuery = startupQuery.where(eq(startups.fundId, fundId));
+        activeDDQuery = activeDDQuery.where(eq(startups.fundId, fundId));
+        pendingMemosQuery = pendingMemosQuery.where(eq(memos.fundId, fundId));
+        docsProcessedQuery = docsProcessedQuery.where(eq(documents.fundId, fundId));
       }
-    };
- 
-    // Contar documentos por categoría
-    const categoriesStatus: any = {};
-    let totalRequired = 0;
-    let totalCompleted = 0;
- 
-    Object.entries(dueDiligenceCategories).forEach(([categoryKey, config]) => {
-      const categoryDocs = docs.filter(doc => doc.type === categoryKey);
-      const uploadedCount = categoryDocs.length;
-      const processedCount = categoryDocs.filter(doc => doc.processingStatus === 'completed').length;
       
-      // Calcular completitud para esta categoría
-      const completion = config.required > 0 
-        ? Math.min(100, Math.round((uploadedCount / config.required) * 100))
-        : 100;
- 
-      categoriesStatus[categoryKey] = {
-        required: config.required,
-        uploaded: uploadedCount,
-        processed: processedCount,
-        completion,
-        importance: config.importance,
-        description: config.description,
-        missingDocs: Math.max(0, config.required - uploadedCount)
+      const totalStartupsResult = await startupQuery;
+      const totalStartups = totalStartupsResult[0]?.count || 0;
+      
+      const activeDueDiligenceResult = await activeDDQuery;
+      const activeDueDiligence = activeDueDiligenceResult[0]?.count || 0;
+      
+      const pendingMemosResult = await pendingMemosQuery;
+      const pendingMemos = pendingMemosResult[0]?.count || 0;
+      
+      const docsProcessedResult = await docsProcessedQuery;
+      const docsProcessed = docsProcessedResult[0]?.count || 0;
+      
+      return {
+        totalStartups,
+        activeDueDiligence,
+        pendingMemos, 
+        docsProcessed,
+        trendStartups: 4,
+        trendDD: 2,
+        trendMemos: -1,
+        trendDocs: 12,
+      };
+    } catch (error) {
+      console.error("Error fetching dashboard metrics:", error);
+      return {
+        totalStartups: 0,
+        activeDueDiligence: 0,
+        pendingMemos: 0,
+        docsProcessed: 0,
+        trendStartups: 0,
+        trendDD: 0,
+        trendMemos: 0,
+        trendDocs: 0,
+      };
+    }
+  }
+     
+
+  async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
+    try {
+      const docs = await this.getDocumentsByStartup(startupId);
+      
+      const dueDiligenceCategories = {
+        'pitch-deck': { 
+          required: 1, 
+          importance: 'high',
+          description: 'Company presentation and vision'
+        },
+        'financials': { 
+          required: 3, 
+          importance: 'high',
+          description: 'Financial statements, projections, unit economics'
+        },
+        'legal': { 
+          required: 4, 
+          importance: 'medium',
+          description: 'Corporate structure, IP, contracts, compliance'
+        },
+        'tech': { 
+          required: 2, 
+          importance: 'high',
+          description: 'Technical documentation, architecture, security'
+        },
+        'market': { 
+          required: 2, 
+          importance: 'medium',
+          description: 'Market research, competitive analysis'
+        },
+        'other': { 
+          required: 0, 
+          importance: 'low',
+          description: 'Additional supporting documents'
+        }
       };
  
-      // Sumar al total ponderado por importancia
-      const weight = config.importance === 'high' ? 3 : config.importance === 'medium' ? 2 : 1;
-      totalRequired += config.required * weight;
-      totalCompleted += Math.min(uploadedCount, config.required) * weight;
-    });
+      const categoriesStatus: any = {};
+      let totalRequired = 0;
+      let totalCompleted = 0;
  
-    // Calcular progreso general ponderado
-    const overallCompletion = totalRequired > 0 
-      ? Math.round((totalCompleted / totalRequired) * 100)
-      : 0;
+      Object.entries(dueDiligenceCategories).forEach(([categoryKey, config]) => {
+        const categoryDocs = docs.filter(doc => doc.type === categoryKey);
+        const uploadedCount = categoryDocs.length;
+        const processedCount = categoryDocs.filter(doc => doc.processingStatus === 'completed').length;
+        
+        const completion = config.required > 0 
+          ? Math.min(100, Math.round((uploadedCount / config.required) * 100))
+          : 100;
  
-    // Contar items totales vs completados (para la respuesta simple)
-    const allRequiredItems = Object.values(dueDiligenceCategories).reduce((sum, cat) => sum + cat.required, 0);
-    const allCompletedItems = Object.values(categoriesStatus).reduce((sum: number, cat: any) => 
-      sum + Math.min(cat.uploaded, cat.required), 0);
+        categoriesStatus[categoryKey] = {
+          required: config.required,
+          uploaded: uploadedCount,
+          processed: processedCount,
+          completion,
+          importance: config.importance,
+          description: config.description,
+          missingDocs: Math.max(0, config.required - uploadedCount)
+        };
  
-    return {
-      totalItems: allRequiredItems,
-      completedItems: allCompletedItems,
-      percentage: overallCompletion,
-      startupId,
-      overallCompletion,
-      categories: categoriesStatus,
-      lastUpdated: new Date().toISOString()
-    };
-  } catch (error) {
-    console.error(`Error calculating due diligence progress for startup ${startupId}:`, error);
-    
-    // Return fallback response
-    return {
-      totalItems: 12,
-      completedItems: 0,
-      percentage: 0,
-      startupId,
-      overallCompletion: 0,
-      categories: {},
-      lastUpdated: new Date().toISOString()
-    };
+        const weight = config.importance === 'high' ? 3 : config.importance === 'medium' ? 2 : 1;
+        totalRequired += config.required * weight;
+        totalCompleted += Math.min(uploadedCount, config.required) * weight;
+      });
+ 
+      const overallCompletion = totalRequired > 0 
+        ? Math.round((totalCompleted / totalRequired) * 100)
+        : 0;
+ 
+      const allRequiredItems = Object.values(dueDiligenceCategories).reduce((sum, cat) => sum + cat.required, 0);
+      const allCompletedItems = Object.values(categoriesStatus).reduce((sum: number, cat: any) => 
+        sum + Math.min(cat.uploaded, cat.required), 0);
+ 
+      return {
+        totalItems: allRequiredItems,
+        completedItems: allCompletedItems,
+        percentage: overallCompletion,
+        startupId,
+        overallCompletion,
+        categories: categoriesStatus,
+        lastUpdated: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error(`Error calculating due diligence progress for startup ${startupId}:`, error);
+      
+      return {
+        totalItems: 12,
+        completedItems: 0,
+        percentage: 0,
+        startupId,
+        overallCompletion: 0,
+        categories: {},
+        lastUpdated: new Date().toISOString()
+      };
+    }
   }
-}
      
-// OPERACIONES PARA CONSULTAS AI (sin cambios)
-async saveQuery(insertQuery: InsertAiQuery): Promise<AiQuery> {
-  try {
-    // Crear UUID para la consulta usando uuid v4 en lugar de crypto
-    const queryId = uuidv4();
-    
-    // Preparar datos para inserción
-    const queryData = {
-      id: queryId,
-      question: insertQuery.question,
-      answer: insertQuery.answer,
-      sources: JSON.stringify(insertQuery.sources), // Guardar como JSON string
-      startupId: insertQuery.startupId || null,
-      userId: insertQuery.userId || null,
-      processingTimeMs: insertQuery.processingTimeMs,
-      metadata: insertQuery.metadata ? JSON.stringify(insertQuery.metadata) : null,
-      fundId: insertQuery.fundId || null, // Añadimos fundId
-      createdAt: new Date()
-    };
-    
-    // Insertar en tabla ai_queries (asumiendo que existe)
-    const insertSql = `
-      INSERT INTO ai_queries (
-        id, question, answer, sources, startup_id, user_id, 
-        processing_time_ms, metadata, created_at, fund_id
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-      ) RETURNING *
-    `;
-    
-    const result = await db.execute(sql.raw(insertSql, [
-      queryData.id,
-      queryData.question,
-      queryData.answer,
-      queryData.sources,
-      queryData.startupId,
-      queryData.userId,
-      queryData.processingTimeMs,
-      queryData.metadata,
-      queryData.createdAt,
-      queryData.fundId
-    ]));
-    
-    const savedQuery = result.rows[0] as any;
-    
-    return {
-      id: savedQuery.id,
-      question: savedQuery.question,
-      answer: savedQuery.answer,
-      sources: JSON.parse(savedQuery.sources || '[]'),
-      startupId: savedQuery.startup_id,
-      userId: savedQuery.user_id,
-      processingTimeMs: savedQuery.processing_time_ms,
-      metadata: savedQuery.metadata ? JSON.parse(savedQuery.metadata) : null,
-      createdAt: new Date(savedQuery.created_at)
-    };
-  } catch (error) {
-    console.error("Error guardando consulta AI:", error);
-    
-    // Fallback: retornar un objeto AiQuery con los datos originales
-    return {
-      id: uuidv4(),
-      question: insertQuery.question,
-      answer: insertQuery.answer,
-      sources: insertQuery.sources,
-      startupId: insertQuery.startupId,
-      userId: insertQuery.userId,
-      processingTimeMs: insertQuery.processingTimeMs,
-      metadata: insertQuery.metadata,
-      createdAt: new Date()
-    };
+  // AI OPERATIONS - CORREGIDAS
+  async saveQuery(insertQuery: InsertAiQuery): Promise<AiQuery> {
+    try {
+      // Usar Drizzle ORM con la tabla aiQueries
+      const [savedQuery] = await db.insert(aiQueries).values({
+        question: insertQuery.question,
+        answer: insertQuery.answer,
+        sources: insertQuery.sources,
+        startupId: insertQuery.startupId || null,
+        userId: insertQuery.userId || null,
+        processingTimeMs: insertQuery.processingTimeMs,
+        metadata: insertQuery.metadata || null,
+        fundId: insertQuery.fundId || null
+      }).returning();
+      
+      return {
+        id: savedQuery.id,
+        question: savedQuery.question,
+        answer: savedQuery.answer,
+        sources: savedQuery.sources as any[],
+        startupId: savedQuery.startupId,
+        userId: savedQuery.userId,
+        processingTimeMs: savedQuery.processingTimeMs,
+        metadata: savedQuery.metadata as Record<string, any>,
+        createdAt: savedQuery.createdAt
+      };
+    } catch (error) {
+      console.error("Error guardando consulta AI:", error);
+      
+      return {
+        id: uuidv4(),
+        question: insertQuery.question,
+        answer: insertQuery.answer,
+        sources: insertQuery.sources,
+        startupId: insertQuery.startupId,
+        userId: insertQuery.userId,
+        processingTimeMs: insertQuery.processingTimeMs,
+        metadata: insertQuery.metadata,
+        createdAt: new Date()
+      };
+    }
   }
-}
      
-async getQueryHistory(options: QueryHistoryOptions): Promise<AiQuery[]> {
-  try {
-    const {
-      limit = 20,
-      startupId,
-      userId,
-      fromDate,
-      toDate,
-      fundId // Nuevo parámetro
-    } = options;
+  async getQueryHistory(options: QueryHistoryOptions): Promise<AiQuery[]> {
+    try {
+      const {
+        limit = 20,
+        startupId,
+        userId,
+        fromDate,
+        toDate,
+        fundId
+      } = options;
  
-    // Construir query dinámicamente
-    let whereConditions: string[] = [];
-    let queryParams: any[] = [];
-    let paramIndex = 1;
+      let query = db.select().from(aiQueries);
+      let conditions = [];
  
-    if (startupId) {
-      whereConditions.push(`startup_id = $${paramIndex}`);
-      queryParams.push(startupId);
-      paramIndex++;
+      if (startupId) {
+        conditions.push(eq(aiQueries.startupId, startupId));
+      }
+ 
+      if (userId) {
+        conditions.push(eq(aiQueries.userId, userId));
+      }
+ 
+      if (fromDate) {
+        conditions.push(sql`${aiQueries.createdAt} >= ${fromDate}`);
+      }
+ 
+      if (toDate) {
+        conditions.push(sql`${aiQueries.createdAt} <= ${toDate}`);
+      }
+      
+      if (fundId) {
+        conditions.push(eq(aiQueries.fundId, fundId));
+      }
+ 
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+ 
+      const results = await query
+        .orderBy(desc(aiQueries.createdAt))
+        .limit(limit);
+ 
+      return results.map((row) => ({
+        id: row.id,
+        question: row.question,
+        answer: row.answer,
+        sources: row.sources as any[] || [],
+        startupId: row.startupId,
+        userId: row.userId,
+        processingTimeMs: row.processingTimeMs,
+        metadata: row.metadata as Record<string, any>,
+        createdAt: row.createdAt
+      }));
+    } catch (error) {
+      console.error("Error obteniendo historial de consultas:", error);
+      return [];
     }
- 
-    if (userId) {
-      whereConditions.push(`user_id = $${paramIndex}`);
-      queryParams.push(userId);
-      paramIndex++;
-    }
- 
-    if (fromDate) {
-      whereConditions.push(`created_at >= $${paramIndex}`);
-      queryParams.push(fromDate);
-      paramIndex++;
-    }
- 
-    if (toDate) {
-      whereConditions.push(`created_at <= $${paramIndex}`);
-      queryParams.push(toDate);
-      paramIndex++;
-    }
-    
-    // Añadir filtro por fundId si existe
-    if (fundId) {
-      whereConditions.push(`fund_id = $${paramIndex}`);
-      queryParams.push(fundId);
-      paramIndex++;
-    }
- 
-    const whereClause = whereConditions.length > 0 
-      ? `WHERE ${whereConditions.join(' AND ')}`
-      : '';
- 
-    const selectSql = `
-      SELECT 
-        id, question, answer, sources, startup_id, user_id,
-        processing_time_ms, metadata, created_at, fund_id
-      FROM ai_queries
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex}
-    `;
- 
-    queryParams.push(limit);
- 
-    const result = await db.execute(sql.raw(selectSql, queryParams));
- 
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      question: row.question,
-      answer: row.answer,
-      sources: JSON.parse(row.sources || '[]'),
-      startupId: row.startup_id,
-      userId: row.user_id,
-      processingTimeMs: row.processing_time_ms,
-      metadata: row.metadata ? JSON.parse(row.metadata) : null,
-      createdAt: new Date(row.created_at)
-    }));
-  } catch (error) {
-    console.error("Error obteniendo historial de consultas:", error);
-    return [];
   }
-}
      
-async getPopularQuestions(limit = 10, fundId?: string): Promise<Array<{question: string; count: number}>> {
-  try {
-    let whereClauses = [];
-    let params = [limit];
-    let paramIndex = 1;
-    
-    whereClauses.push(`created_at >= NOW() - INTERVAL '30 days'`);
-    
-    if (fundId) {
-      whereClauses.push(`fund_id = $${paramIndex + 1}`);
-      params.push(fundId);
-      paramIndex++;
+  async getPopularQuestions(limit = 10, fundId?: string): Promise<Array<{question: string; count: number}>> {
+    try {
+      let whereClauses = ['created_at >= NOW() - INTERVAL \'30 days\''];
+      let params = [limit];
+      let paramIndex = 2;
+      
+      if (fundId) {
+        whereClauses.push(`fund_id = $${paramIndex}`);
+        params.push(fundId);
+        paramIndex++;
+      }
+      
+      const whereClause = `WHERE ${whereClauses.join(' AND ')}`;
+      
+      const popularSql = `
+        SELECT 
+          question, 
+          COUNT(*) as count
+        FROM ai_queries
+        ${whereClause}
+        GROUP BY question
+        HAVING COUNT(*) > 1
+        ORDER BY count DESC, question
+        LIMIT $1
+      `;
+ 
+      const result = await db.execute(sql.raw(popularSql, params));
+ 
+      return result.rows.map((row: any) => ({
+        question: row.question,
+        count: parseInt(row.count)
+      }));
+    } catch (error) {
+      console.error("Error obteniendo preguntas populares:", error);
+      return [];
     }
-    
-    const whereClause = whereClauses.length > 0 
-      ? `WHERE ${whereClauses.join(' AND ')}` 
-      : '';
-    
-    const popularSql = `
-      SELECT 
-        question, 
-        COUNT(*) as count
-      FROM ai_queries
-      ${whereClause}
-      GROUP BY question
-      HAVING COUNT(*) > 1
-      ORDER BY count DESC, question
-      LIMIT $1
-    `;
- 
-    const result = await db.execute(sql.raw(popularSql, params));
- 
-    return result.rows.map((row: any) => ({
-      question: row.question,
-      count: parseInt(row.count)
-    }));
-  } catch (error) {
-    console.error("Error obteniendo preguntas populares:", error);
-    return [];
   }
-}
-}
+ }
      
-export const storage = new DatabaseStorage();
+ export const storage = new DatabaseStorage();

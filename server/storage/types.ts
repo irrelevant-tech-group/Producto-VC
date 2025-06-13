@@ -31,5 +31,5 @@ export interface AiQuery {
     userId?: number;
     fromDate?: Date;
     toDate?: Date;
-    fundId?: string; // Añadido para Clerk
+    fundId?: string;
   }

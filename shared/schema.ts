@@ -182,6 +182,20 @@ export const activities = pgTable("activities", {
   fundId: text("fund_id").references(() => funds.id),
 });
 
+
+// AI Queries table - NUEVA TABLA AGREGADA
+export const aiQueries = pgTable("ai_queries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  sources: jsonb("sources"),
+  startupId: uuid("startup_id").references(() => startups.id),
+  userId: integer("user_id").references(() => users.id),
+  processingTimeMs: integer("processing_time_ms").notNull().default(0),
+  metadata: jsonb("metadata"),
+  fundId: text("fund_id").references(() => funds.id),
+  createdAt: timestamp("created_at").defaultNow(),
+
 // Tabla para plantillas de Due Diligence
 export const dueDiligenceTemplates = pgTable("due_diligence_templates", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -193,6 +207,7 @@ export const dueDiligenceTemplates = pgTable("due_diligence_templates", {
   updatedAt: timestamp("updated_at").defaultNow(),
   createdBy: integer("created_by").references(() => users.id),
   updatedBy: integer("updated_by").references(() => users.id),
+
 });
 
 // Investment Thesis Table - SIN CAMBIOS
@@ -236,14 +251,30 @@ export const investmentThesis = pgTable("investment_thesis", {
   updatedBy: integer("updated_by").references(() => users.id),
 });
 
-// Relaciones actualizadas - SIN CAMBIOS
+// Due Diligence Templates Table - NUEVA TABLA AGREGADA
+export const dueDiligenceTemplates = pgTable("due_diligence_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fundId: text("fund_id").notNull().references(() => funds.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").default(true),
+  categories: jsonb("categories").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
+// Relaciones actualizadas - CON AI QUERIES Y DD TEMPLATES
 export const usersRelations = relations(users, ({ many, one }) => ({
   documents: many(documents),
   memos: many(memos),
   activities: many(activities),
+  aiQueries: many(aiQueries),
   fund: one(funds, { fields: [users.fundId], references: [funds.id] }),
   createdTheses: many(investmentThesis, { relationName: 'createdTheses' }),
   updatedTheses: many(investmentThesis, { relationName: 'updatedTheses' }),
+  createdDDTemplates: many(dueDiligenceTemplates, { relationName: 'createdDDTemplates' }),
+  updatedDDTemplates: many(dueDiligenceTemplates, { relationName: 'updatedDDTemplates' }),
 }));
 
 export const fundsRelations = relations(funds, ({ many, one }) => ({
@@ -252,7 +283,9 @@ export const fundsRelations = relations(funds, ({ many, one }) => ({
   documents: many(documents),
   memos: many(memos),
   activities: many(activities),
+  aiQueries: many(aiQueries),
   investmentTheses: many(investmentThesis),
+  dueDiligenceTemplates: many(dueDiligenceTemplates),
   createdByUser: one(users, { fields: [funds.createdBy], references: [users.id] }),
 }));
 
@@ -261,6 +294,7 @@ export const startupsRelations = relations(startups, ({ many, one }) => ({
   chunks: many(chunks),
   memos: many(memos),
   activities: many(activities),
+  aiQueries: many(aiQueries),
   fund: one(funds, { fields: [startups.fundId], references: [funds.id] }),
 }));
 
@@ -293,6 +327,13 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   fund: one(funds, { fields: [activities.fundId], references: [funds.id] }),
 }));
 
+
+// Relaciones para AI Queries - NUEVAS RELACIONES
+export const aiQueriesRelations = relations(aiQueries, ({ one }) => ({
+  startup: one(startups, { fields: [aiQueries.startupId], references: [startups.id] }),
+  user: one(users, { fields: [aiQueries.userId], references: [users.id] }),
+  fund: one(funds, { fields: [aiQueries.fundId], references: [funds.id] }),
+
 export const dueDiligenceTemplatesRelations = relations(dueDiligenceTemplates, ({ one }) => ({
   fund: one(funds, { fields: [dueDiligenceTemplates.fundId], references: [funds.id] }),
   createdByUser: one(users, { fields: [dueDiligenceTemplates.createdBy], references: [users.id] }),
@@ -314,6 +355,21 @@ export const investmentThesisRelations = relations(investmentThesis, ({ one }) =
   }),
 }));
 
+// Relaciones para Due Diligence Templates - NUEVAS RELACIONES
+export const dueDiligenceTemplatesRelations = relations(dueDiligenceTemplates, ({ one }) => ({
+  fund: one(funds, { fields: [dueDiligenceTemplates.fundId], references: [funds.id] }),
+  createdByUser: one(users, { 
+    fields: [dueDiligenceTemplates.createdBy], 
+    references: [users.id],
+    relationName: 'createdDDTemplates'
+  }),
+  updatedByUser: one(users, { 
+    fields: [dueDiligenceTemplates.updatedBy], 
+    references: [users.id],
+    relationName: 'updatedDDTemplates'
+  }),
+}));
+
 // Tipos para todas las tablas
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -332,9 +388,17 @@ export type InsertActivity = typeof activities.$inferInsert;
 export type DueDiligenceTemplate = typeof dueDiligenceTemplates.$inferSelect;
 export type InsertDueDiligenceTemplate = typeof dueDiligenceTemplates.$inferInsert;
 
+// Tipos para AI Queries - NUEVOS TIPOS
+export type AiQuery = typeof aiQueries.$inferSelect;
+export type InsertAiQuery = typeof aiQueries.$inferInsert;
+
 // Tipos para Investment Thesis
 export type InvestmentThesis = typeof investmentThesis.$inferSelect;
 export type InsertInvestmentThesis = typeof investmentThesis.$inferInsert;
+
+// Tipos para Due Diligence Templates - NUEVOS TIPOS
+export type DueDiligenceTemplate = typeof dueDiligenceTemplates.$inferSelect;
+export type InsertDueDiligenceTemplate = typeof dueDiligenceTemplates.$inferInsert;
 
 // Esquemas de validación - ACTUALIZADOS
 export const insertStartupSchema = createInsertSchema(startups, {
@@ -377,6 +441,18 @@ export const insertFundSchema = createInsertSchema(funds, {
 
 export const insertDocumentSchema = createInsertSchema(documents, {
   startupId: z.string().uuid("Must be a valid UUID"),
+  fundId: z.string().optional()
+});
+
+// Schema de validación para AI Queries - NUEVO SCHEMA
+export const insertAiQuerySchema = createInsertSchema(aiQueries, {
+  question: z.string().min(1, "Question is required"),
+  answer: z.string().min(1, "Answer is required"),
+  sources: z.array(z.any()).optional(),
+  startupId: z.string().uuid().optional(),
+  userId: z.number().int().positive().optional(),
+  processingTimeMs: z.number().int().min(0).default(0),
+  metadata: z.record(z.any()).optional(),
   fundId: z.string().optional()
 });
 
@@ -444,6 +520,7 @@ export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis,
   ticketSizeMax: z.number().positive().optional(),
   redFlags: z.array(z.string()).optional(),
   mustHaves: z.array(z.string()).optional(),
+  // ✅ QUITAR fundId del schema - se asignará automáticamente
 }).refine(data => {
   if (data.ticketSizeMin && data.ticketSizeMax) {
     return data.ticketSizeMax >= data.ticketSizeMin;
@@ -452,6 +529,115 @@ export const insertInvestmentThesisSchema = createInsertSchema(investmentThesis,
 }, {
   message: "Maximum ticket size must be greater than or equal to minimum ticket size",
   path: ["ticketSizeMax"]
+});
+
+
+export const createInvestmentThesisBodySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  preferredVerticals: z.array(z.object({
+    vertical: z.string(),
+    weight: z.number().min(0).max(1),
+    criteria: z.string().optional()
+  })).min(1, "At least one vertical is required"),
+  preferredStages: z.array(z.object({
+    stage: z.string(),
+    weight: z.number().min(0).max(1),
+    ticketRange: z.object({
+      min: z.number().optional(),
+      max: z.number().optional()
+    }).optional()
+  })).min(1, "At least one stage is required"),
+  geographicFocus: z.array(z.object({
+    region: z.string(),
+    weight: z.number().min(0).max(1)
+  })).min(1, "At least one geographic focus is required"),
+  evaluationCriteria: z.object({
+    team: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    market: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    product: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    traction: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    businessModel: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    }),
+    fundFit: z.object({ 
+      weight: z.number().min(0).max(1), 
+      subcriteria: z.record(z.object({
+        weight: z.number().min(0).max(1)
+      })).optional()
+    })
+  }),
+  investmentPhilosophy: z.string().min(50, "Investment philosophy must be detailed"),
+  valueProposition: z.string().min(30, "Value proposition is required"),
+  ticketSizeMin: z.number().positive().optional(),
+  ticketSizeMax: z.number().positive().optional(),
+  targetOwnershipMin: z.number().min(0).max(100).optional(),
+  targetOwnershipMax: z.number().min(0).max(100).optional(),
+  expectedReturns: z.record(z.any()).optional(),
+  decisionProcess: z.string().optional(),
+  riskAppetite: z.string().optional(),
+  verticalSpecificCriteria: z.record(z.any()).optional(),
+  redFlags: z.array(z.string()).optional(),
+  mustHaves: z.array(z.string()).optional(),
+  version: z.number().int().positive().optional(),
+  isActive: z.boolean().optional()
+}).refine(data => {
+  if (data.ticketSizeMin && data.ticketSizeMax) {
+    return data.ticketSizeMax >= data.ticketSizeMin;
+  }
+  return true;
+}, {
+  message: "Maximum ticket size must be greater than or equal to minimum ticket size",
+  path: ["ticketSizeMax"]
+}).refine(data => {
+  if (data.targetOwnershipMin && data.targetOwnershipMax) {
+    return data.targetOwnershipMax >= data.targetOwnershipMin;
+  }
+  return true;
+}, {
+  message: "Maximum ownership must be greater than or equal to minimum ownership",
+  path: ["targetOwnershipMax"]
+});
+
+// Schema de validación para Due Diligence Templates - NUEVO SCHEMA
+export const insertDueDiligenceTemplateSchema = createInsertSchema(dueDiligenceTemplates, {
+  name: z.string().min(1, "Name is required"),
+  categories: z.array(z.object({
+    key: z.string().min(1),
+    name: z.string().min(1),
+    required: z.number().min(0),
+    importance: z.enum(['high', 'medium', 'low']),
+    description: z.string(),
+    order: z.number(),
+    documentTypes: z.array(z.string()).optional(),
+    isDefault: z.boolean().default(false)
+  })).min(1, "At least one category is required"),
+  fundId: z.string().uuid("Must be a valid fund ID"),
+  isActive: z.boolean().default(true),
+  createdBy: z.number().int().positive().optional(),
+  updatedBy: z.number().int().positive().optional()
 });
 
 // Resto de esquemas - SIN CAMBIOS
