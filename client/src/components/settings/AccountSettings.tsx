@@ -52,7 +52,10 @@ export const AccountSettings = ({ user }: AccountSettingsProps) => {
               <p className="font-medium text-slate-800">Current Organization</p>
               <p className="text-sm text-slate-500">Manage organization settings and members</p>
             </div>
-            <Button variant="outline" disabled>
+            <Button 
+              variant="outline" 
+              onClick={() => window.location.href = '/organization'}
+            >
               Manage Organization
             </Button>
           </div>

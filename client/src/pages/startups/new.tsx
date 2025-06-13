@@ -207,9 +207,9 @@ export default function StartupNew() {
                       <SelectValue placeholder="Select stage" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="pre-seed">Pre-seed</SelectItem>
-                      <SelectItem value="seed">Seed</SelectItem>
-                      <SelectItem value="series-a">Series A</SelectItem>
+                      <SelectItem value="First Approach">First Approach</SelectItem>
+                      <SelectItem value="Due Diligence">Due Diligence</SelectItem>
+                      <SelectItem value="Post inversion">Post inversion</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

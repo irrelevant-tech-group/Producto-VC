@@ -154,9 +154,9 @@ function generateFallbackWithThesis(startup: any, thesisContext: string): any {
   const verticalMatch = preferredVerticals.includes(startup.vertical.toLowerCase()) ? 0.8 : 0.3;
   
   const stageScores: Record<string, number> = {
-    "pre-seed": 0.9,
-    "seed": 0.8,
-    "series-a": 0.4,
+    "first approach": 0.9,
+    "due diligence": 0.8,
+    "post inversion": 0.4,
   };
   const stageMatch = stageScores[startup.stage.toLowerCase()] || 0.2;
   

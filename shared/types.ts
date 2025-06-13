@@ -94,6 +94,37 @@ export interface DueDiligenceProgress {
   };
 }
 
+export interface DueDiligenceCategory {
+  key: string;
+  name: string;
+  required: number;
+  importance: 'high' | 'medium' | 'low';
+  description: string;
+  order: number;
+  documentTypes?: string[];
+  isDefault: boolean;
+}
+
+export interface DueDiligenceTemplate {
+  id: string;
+  fundId: string;
+  name: string;
+  isActive: boolean;
+  categories: DueDiligenceCategory[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: number;
+  updatedBy?: number;
+}
+
+export interface InsertDueDiligenceTemplate {
+  fundId: string;
+  name: string;
+  categories: DueDiligenceCategory[];
+  isActive?: boolean;
+  createdBy?: number;
+}
+
 // Nuevo tipo para tracking de inversiones
 export interface InvestmentDetails {
   startupId: string;

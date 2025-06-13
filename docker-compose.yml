@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+    ports:
+      - "3000:3000"
+      - "5432:5432"
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://irrelevant-db_owner:npg_Ww0sNd9BaXCf@ep-cool-sun-a5igmefy-pooler.us-east-2.aws.neon.tech/irrelevant-db?sslmode=require
+      - VITE_CLERK_PUBLISHABLE_KEY=${VITE_CLERK_PUBLISHABLE_KEY}
+    env_file:
+      - .env
+    volumes:
+      - ./temp_uploads:/app/temp_uploads
+      - ./attached_assets:/app/attached_assets

@@ -35,6 +35,7 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByClerkId(clerkId: string): Promise<User | undefined>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
@@ -137,7 +138,6 @@ export class DatabaseStorage implements IStorage {
       .orderBy(users.name);
   }
   
-  // Fund operations
   async getFund(id: string): Promise<Fund | undefined> {
     const [fund] = await db.select().from(funds).where(eq(funds.id, id));
     return fund;
@@ -753,6 +753,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
      
+
   async getDueDiligenceProgress(startupId: string): Promise<DueDiligenceProgress> {
     try {
       const docs = await this.getDocumentsByStartup(startupId);

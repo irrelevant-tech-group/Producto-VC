@@ -153,8 +153,9 @@ interface ThesisFormProps {
   isLoading: boolean;
 }
 
+
 const verticalOptions = ["fintech", "saas", "ai", "marketplace", "ecommerce", "cleantech", "health", "edtech", "proptech", "deeptech"];
-const stageOptions = ["pre-seed", "seed", "series-a", "series-b"];
+const stageOptions = ["First Approach", "Due Diligence", "Post inversion"];
 const regionOptions = ["North America", "Latin America", "Europe", "Asia Pacific", "Middle East", "Africa"];
 
 const defaultFormData: InvestmentThesisComplete = {
@@ -164,6 +165,28 @@ const defaultFormData: InvestmentThesisComplete = {
   preferredVerticals: [],
   preferredStages: [],
   geographicFocus: [],
+
+const defaultThesisData: ThesisFormData = {
+  name: "Investment Thesis v1",
+  investmentPhilosophy: "We invest in early-stage technology companies with strong founding teams, large addressable markets, and innovative solutions to real problems.",
+  valueProposition: "We provide not just capital, but strategic guidance and network access to help startups scale efficiently.",
+  preferredVerticals: [
+    { vertical: "fintech", weight: 0.3 },
+    { vertical: "saas", weight: 0.25 },
+    { vertical: "ai", weight: 0.25 },
+    { vertical: "marketplace", weight: 0.2 }
+  ],
+  preferredStages: [
+    { stage: "First Approach", weight: 0.4, ticketRange: { min: 50000, max: 200000 } },
+    { stage: "Due Diligence", weight: 0.5, ticketRange: { min: 200000, max: 500000 } },
+    { stage: "Post inversion", weight: 0.1, ticketRange: { min: 500000, max: 1000000 } }
+  ],
+  geographicFocus: [
+    { region: "North America", weight: 0.4 },
+    { region: "Latin America", weight: 0.4 },
+    { region: "Europe", weight: 0.2 }
+  ],
+
   evaluationCriteria: {
     team: { weight: 0.25 },
     market: { weight: 0.2 },
