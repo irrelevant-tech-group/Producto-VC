@@ -165,7 +165,7 @@ const defaultFormData: InvestmentThesisComplete = {
   preferredVerticals: [],
   preferredStages: [],
   geographicFocus: [],
-
+}
 const defaultThesisData: ThesisFormData = {
   name: "Investment Thesis v1",
   investmentPhilosophy: "We invest in early-stage technology companies with strong founding teams, large addressable markets, and innovative solutions to real problems.",
